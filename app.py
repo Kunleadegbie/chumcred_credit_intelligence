@@ -28,12 +28,18 @@ if "go_to_login" not in st.session_state:
     st.session_state.go_to_login = False
 
 # ===============================
-# LANDING CONTROL (FINAL CLEAN FIX)
+# FORCE LANDING FIRST (FIX)
 # ===============================
 if "user" not in st.session_state:
 
+    # 🔥 ALWAYS RESET ON FIRST LOAD
+    if "visited" not in st.session_state:
+        st.session_state.visited = True
+        st.session_state.go_to_login = False
+
     if not st.session_state.get("go_to_login", False):
 
+        # Hide sidebar
         st.markdown("""
         <style>
         [data-testid="stSidebar"] {display: none;}
@@ -41,14 +47,40 @@ if "user" not in st.session_state:
         </style>
         """, unsafe_allow_html=True)
 
-        
+        # LANDING PAGE (CONSISTENT)
+        st.title("🚀 Chumcred AI Credit Intelligence Platform")
+        st.caption("Smart Credit Decisions Powered by AI")
 
-    st.markdown("""
-    <style>
-    [data-testid="stSidebar"] {display: none;}
-    [data-testid="stSidebarNav"] {display: none;}
-    </style>
-    """, unsafe_allow_html=True)
+        st.markdown("""
+        ### Welcome
+
+        This platform enables:
+        - AI-powered credit assessment  
+        - Structured credit memo generation  
+        - Multi-level approval workflow  
+        - Institutional credit intelligence  
+
+        Designed for modern financial institutions.
+        """)
+
+        if st.button("🔐 Go to Login"):
+            st.session_state.go_to_login = True
+            st.rerun()
+
+        st.stop()
+
+    # LOGIN PAGE
+    st.title("🔐 Login to Chumcred AI")
+
+    tab1, tab2 = st.tabs(["Login", "Sign Up"])
+
+    with tab1:
+        login_page()
+
+    with tab2:
+        signup_page()
+
+    st.stop()
 
 # ===============================
 # LOGIN / SIGNUP SCREEN
@@ -148,6 +180,23 @@ h1, h2, h3 {color: #1f3c88;}
 # ===============================
 st.sidebar.image("assets/logo.png", width=100)
 st.sidebar.title("Navigation")
+
+# ===============================
+# LOGOUT BUTTON
+# ===============================
+st.sidebar.markdown("---")
+
+if st.sidebar.button("🚪 Logout"):
+
+    # Clear session
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+
+    # Reset landing flow
+    st.session_state.go_to_login = False
+
+    st.success("Logged out successfully")
+    st.rerun()
 
 # ===============================
 # ROLE NAVIGATION
