@@ -1,7 +1,8 @@
+
 import streamlit as st
 
 # ===============================
-# PAGE CONFIG
+# PAGE CONFIGURATION
 # ===============================
 st.set_page_config(page_title="Chumcred AI", layout="wide")
 
