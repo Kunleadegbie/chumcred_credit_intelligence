@@ -21,6 +21,11 @@ st.markdown("""
 
 st.image("assets/logo.png", width=120)
 
+# ===============================
+# INIT STATE
+# ===============================
+if "go_to_login" not in st.session_state:
+    st.session_state.go_to_login = False
 
 # ===============================
 # LANDING CONTROL (FINAL CLEAN FIX)
@@ -48,21 +53,54 @@ if "user" not in st.session_state:
 # ===============================
 # LOGIN / SIGNUP SCREEN
 # ===============================
+# ===============================
+# LANDING → LOGIN FLOW
+# ===============================
 if "user" not in st.session_state:
 
-    st.title("🧠 Chumcred AI Credit Intelligence Platform")
-    st.caption("Smart Credit Decisions Powered by AI")
+    if not st.session_state.go_to_login:
 
-    tab1, tab2 = st.tabs(["Login", "Sign Up"])
+        # Hide sidebar
+        st.markdown("""
+        <style>
+        [data-testid="stSidebar"] {display: none;}
+        [data-testid="stSidebarNav"] {display: none;}
+        </style>
+        """, unsafe_allow_html=True)
 
-    with tab1:
-        login_page()
+        # LANDING PAGE CONTENT
+        st.title("🚀 Chumcred AI Credit Intelligence Platform")
+        st.caption("Smart Credit Decisions Powered by AI")
 
-    with tab2:
-        signup_page()
+        st.markdown("""
+        ### Welcome
 
-    st.stop()
+        This platform helps institutions:
+        - Automate credit analysis
+        - Generate AI-powered credit memos
+        - Manage approval workflows
+        - Make faster and smarter lending decisions
+        """)
 
+        if st.button("🔐 Go to Login"):
+            st.session_state.go_to_login = True
+            st.rerun()
+
+        st.stop()
+
+    else:
+        # LOGIN PAGE
+        st.title("🔐 Login to Chumcred AI")
+
+        tab1, tab2 = st.tabs(["Login", "Sign Up"])
+
+        with tab1:
+            login_page()
+
+        with tab2:
+            signup_page()
+
+        st.stop()
 # ===============================
 # GET USER
 # ===============================
