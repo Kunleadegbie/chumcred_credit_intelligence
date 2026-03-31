@@ -36,7 +36,7 @@ if "user" not in st.session_state:
         </style>
         """, unsafe_allow_html=True)
 
-        st.switch_page("Landing.py")
+        
 
     st.markdown("""
     <style>
