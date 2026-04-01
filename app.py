@@ -27,22 +27,48 @@ if "go_to_login" not in st.session_state:
     st.session_state.go_to_login = False
 
 # ===============================
-# LANDING / LOGIN FLOW (CLEAN)
+# LANDING / LOGIN FLOW (FINAL FIX)
 # ===============================
 if "user" not in st.session_state:
 
-    # 🔥 SHOW LANDING PAGE FIRST
     if not st.session_state.go_to_login:
-        st.switch_page("Landing.py")
 
-    # 🔥 LOGIN PAGE
-    st.markdown("""
-    <style>
-    [data-testid="stSidebar"] {display: none;}
-    [data-testid="stSidebarNav"] {display: none;}
-    </style>
-    """, unsafe_allow_html=True)
+        # Hide sidebar
+        st.markdown("""
+        <style>
+        [data-testid="stSidebar"] {display: none;}
+        [data-testid="stSidebarNav"] {display: none;}
+        </style>
+        """, unsafe_allow_html=True)
 
+        # 🔥 YOUR PROFESSIONAL LANDING UI
+        st.markdown("""
+        <div style="text-align:center; padding:40px;">
+            <h1 style="color:#1f3c88;">Chumcred AI Credit Intelligence Platform</h1>
+            <p style="font-size:18px;">Smart Credit Decisions Powered by AI</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("""
+        ### 🚀 What You Can Do
+
+        - AI-powered credit assessment  
+        - Automated credit memo generation  
+        - Multi-level approval workflow  
+        - Institutional analytics dashboard  
+        """)
+
+        st.markdown("---")
+
+        if st.button("🔐 Go to Login"):
+            st.session_state.go_to_login = True
+            st.rerun()
+
+        st.stop()
+
+    # ===============================
+    # LOGIN PAGE
+    # ===============================
     st.title("🔐 Login to Chumcred AI")
 
     tab1, tab2 = st.tabs(["Login", "Sign Up"])
