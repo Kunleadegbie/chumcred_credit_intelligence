@@ -33,11 +33,14 @@ def render_sidebar(role: str) -> None:
         st.sidebar.page_link("pages/5_Analytics.py", label="Analytics")
         st.sidebar.page_link("pages/6_Admin_Roles.py", label="Admin Panel")
 
-st.sidebar.markdown("---")
+    # ===============================
+    # LOGOUT (NOW FIXED)
+    # ===============================
+    st.sidebar.markdown("---")
 
-if st.sidebar.button("🚪 Logout"):
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
+    if st.sidebar.button("🚪 Logout"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
 
-    st.session_state.go_to_login = False
-    st.rerun()
+        st.session_state.go_to_login = False
+        st.rerun()

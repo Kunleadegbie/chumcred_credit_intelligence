@@ -27,34 +27,52 @@ if "go_to_login" not in st.session_state:
     st.session_state.go_to_login = False
 
 # ===============================
-# LANDING / LOGIN FLOW (FINAL CLEAN)
+# LANDING / LOGIN FLOW (FINAL)
 # ===============================
 if "user" not in st.session_state:
 
     if not st.session_state.get("go_to_login", False):
-        st.switch_page("Landing.py")
+
+        st.markdown("""
+        <style>
+        [data-testid="stSidebar"] {display: none;}
+        </style>
+        """, unsafe_allow_html=True)
+
+        st.markdown("""
+        <div style="text-align:center; padding:60px 20px;">
+            <h1 style="color:#1f3c88; font-size:40px;">
+                Chumcred AI Credit Intelligence Platform
+            </h1>
+            <p style="font-size:18px; color:#555;">
+                Smart Credit Decisions Powered by AI
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.markdown("### 🤖 AI Credit Assessment")
+            st.write("Automate borrower risk evaluation")
+
+        with col2:
+            st.markdown("### 📄 Smart Credit Memo")
+            st.write("Generate structured bank-grade memos")
+
+        with col3:
+            st.markdown("### 🔄 Approval Workflow")
+            st.write("Multi-level credit approval system")
+
+        st.markdown("---")
+
+        if st.button("🔐 Go to Login", use_container_width=True):
+            st.session_state.go_to_login = True
+            st.rerun()
+
+        st.stop()
 
     # LOGIN PAGE
-    st.markdown("""
-    <style>
-    [data-testid="stSidebar"] {display: none;}
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.title("🔐 Login to Chumcred AI")
-
-    tab1, tab2 = st.tabs(["Login", "Sign Up"])
-
-    with tab1:
-        login_page()
-
-    with tab2:
-        signup_page()
-
-    st.stop()
-    # ===============================
-    # LOGIN PAGE
-    # ===============================
     st.title("🔐 Login to Chumcred AI")
 
     tab1, tab2 = st.tabs(["Login", "Sign Up"])
@@ -93,18 +111,6 @@ email = profile.get("email", "")
 # SIDEBAR (ONLY ONE SYSTEM)
 # ===============================
 render_sidebar(role)
-
-# ===============================
-# LOGOUT (STABLE POSITION)
-# ===============================
-st.sidebar.markdown("---")
-
-if st.sidebar.button("🚪 Logout"):
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
-
-    st.session_state.go_to_login = False
-    st.rerun()
 
 # ===============================
 # BLOCK PENDING USERS
