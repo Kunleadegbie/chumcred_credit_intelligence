@@ -327,66 +327,6 @@ st.markdown(memo["recommendation"])
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ===============================
-# GENERATE MEMO
-# ===============================
-memo = generate_bank_grade_memo(app)
-
-# ===============================
-# SAVE TO DATABASE (CRITICAL FIX)
-# ===============================
-supabase.table("loan_applications").update({
-    "borrower_summary": memo["borrower_summary"],
-    "facility_request": memo["facility_request"],
-    "risk_assessment": memo["risk_assessment"],
-    "decision_summary": memo["decision_summary"],
-    "ai_strengths": memo["key_strength"].split("\n"),
-    "ai_risk_flags": memo["key_risk"].split("\n"),
-    "ai_recommendation": memo["recommendation"]
-}).eq("id", app["id"]).execute()
-
-# ===============================
-# DISPLAY MEMO (BANK STANDARD)
-# ===============================
-st.markdown("## 🧾 Credit Assessment Memo")
-
-st.markdown(
-    f"""
-<div style="
-    border:1px solid #e6e6e6;
-    border-radius:10px;
-    padding:20px;
-    background-color:#fafafa;
-    font-size:15.5px;
-    line-height:1.8;
-    color:#222;
-">
-
-<b>Borrower Summary</b><br>
-{memo["borrower_summary"]}
-
-<br><br>
-
-<b>Facility Request</b><br>
-{memo["facility_request"]}
-
-<br><br>
-
-<b>Risk Assessment</b><br><br>
-<p style="text-align:justify; margin:0;">
-{memo["risk_assessment"]}
-</p>
-
-<br><br>
-
-<b>Decision Summary</b><br>
-{memo["decision_summary"]}
-
-</div>
-""",
-    unsafe_allow_html=True
-)
-
-# ===============================
 # KEY INSIGHTS (NOW FIXED)
 # ===============================
 st.markdown("### ✅ Key Strengths")
