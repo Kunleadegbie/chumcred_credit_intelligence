@@ -27,7 +27,7 @@ if "go_to_login" not in st.session_state:
     st.session_state.go_to_login = False
 
 # ===============================
-# LANDING / LOGIN FLOW (FINAL)
+# LANDING / LOGIN FLOW
 # ===============================
 if "user" not in st.session_state:
 
@@ -72,7 +72,6 @@ if "user" not in st.session_state:
 
         st.stop()
 
-    # LOGIN PAGE
     st.title("🔐 Login to Chumcred AI")
 
     tab1, tab2 = st.tabs(["Login", "Sign Up"])
@@ -108,7 +107,7 @@ institution = profile.get("institution", "")
 email = profile.get("email", "")
 
 # ===============================
-# SIDEBAR (ONLY ONE SYSTEM)
+# SIDEBAR
 # ===============================
 render_sidebar(role)
 
@@ -118,6 +117,27 @@ render_sidebar(role)
 if role == "pending":
     st.warning("Your account is awaiting role assignment.")
     st.stop()
+
+# ===============================
+# ROLE AUTO-ROUTING
+# ===============================
+def route_role(role_name: str):
+    route_map = {
+        "initiator": "pages/1_Initiator.py",
+        "loan_officer": "pages/1_Initiator.py",
+        "analyst": "pages/2_Analyst.py",
+        "credit_analyst": "pages/2_Analyst.py",
+        "manager": "pages/3_Manager.py",
+        "final_approver": "pages/4_Final_Approver.py",
+        "institution_admin": "pages/6_Admin_Roles.py",
+        "super_admin": "pages/6_Admin_Roles.py",
+    }
+    target = route_map.get(role_name)
+    current_page = st.session_state.get("_role_landing_done_for")
+
+    if target and current_page != role_name:
+        st.session_state["_role_landing_done_for"] = role_name
+        st.switch_page(target)
 
 # ===============================
 # GLOBAL STYLE
@@ -138,24 +158,21 @@ h1, h2, h3 {color: #1f3c88;}
 # DASHBOARD TITLE
 # ===============================
 def get_dashboard_title(role: str) -> str:
-
-    if role == "loan_officer":
+    if role in ["loan_officer", "initiator"]:
         return "📝 Loan Initiation Dashboard"
-
     elif role in ["analyst", "credit_analyst"]:
         return "🔎 Credit Analyst Dashboard"
-
     elif role == "manager":
         return "📊 Credit Manager Dashboard"
-
     elif role == "final_approver":
         return "✅ Final Approval Desk"
-
     elif role in ["institution_admin", "super_admin"]:
         return "⚙️ Admin Control Panel"
-
     else:
         return "📌 Credit Workflow Dashboard"
+
+# Route users into their actual work pages right after login/profile load
+route_role(role)
 
 # ===============================
 # MAIN DASHBOARD HEADER
