@@ -1,6 +1,5 @@
 import streamlit as st
 from db.supabase_client import supabase
-from workflow.application_service import update_application_status
 from datetime import datetime
 from workflow.sidebar_menu import render_sidebar
 
@@ -13,274 +12,116 @@ if "user" not in st.session_state:
 user = st.session_state.user
 
 # ===============================
-# FETCH PROFILE (SAFE)
+# FETCH PROFILE
 # ===============================
-resp = supabase.table("user_profiles") \
-    .select("*") \
-    .eq("id", user.id) \
-    .execute()
+resp = supabase.table("user_profiles").select("*").eq("id", user.id).execute()
+profile = resp.data[0] if resp.data else {"role": "pending", "institution": ""}
 
-if resp.data:
-    profile = resp.data[0]
-else:
-    profile = {
-        "id": user.id,
-        "email": user.email,
-        "role": "pending",
-        "institution": ""
-    }
-    supabase.table("user_profiles").insert(profile).execute()
-
-# ===============================
-# EXTRACT ROLE
-# ===============================
 role = (profile.get("role") or "").strip().lower()
 institution = profile.get("institution") or ""
 
-# ===============================
-# SIDEBAR
-# ===============================
 render_sidebar(role)
 
-# ===============================
-# ACCESS CONTROL
-# ===============================
-def allow(*allowed):
-    allowed = [r.lower() for r in allowed]
-    return role in allowed or role == "super_admin"
-
-if not allow("manager"):
+if role not in ["manager", "super_admin"]:
     st.error("Access denied")
     st.stop()
+
 st.title("🏁 Credit Manager Desk")
 st.caption(f"Institution: {institution}")
 
-# =========================================================
-# LOAD APPLICATIONS (ONLY ANALYST APPROVED)
-# =========================================================
-applications = supabase.table("loan_applications") \
+# ===============================
+# LOAD APPLICATIONS
+# ===============================
+apps = supabase.table("loan_applications") \
     .select("*") \
     .eq("institution", institution) \
     .eq("workflow_status", "ANALYST_APPROVED") \
     .order("created_at", desc=True) \
     .execute().data
 
-if not applications:
+if not apps:
     st.info("No applications awaiting manager review.")
     st.stop()
 
-# =========================================================
+# ===============================
 # SELECT APPLICATION
-# =========================================================
-app_map = {
-    f"{a['client_name']} | ₦{a['loan_amount']:,.0f} | Score {a['score']}": a
-    for a in applications
+# ===============================
+app_options = {
+    f"{a['client_name']} | ₦{a['loan_amount']:,.0f}": a["id"]
+    for a in apps
 }
 
-selected_label = st.selectbox("Select Application", list(app_map.keys()))
+selected = st.selectbox("Select Application", list(app_options.keys()))
+selected_id = app_options[selected]
 
-# DEFAULT SELECTION
-app = app_map[selected_label]
+# 🔥 ALWAYS FETCH FRESH DATA (CRITICAL FIX)
+app = supabase.table("loan_applications") \
+    .select("*") \
+    .eq("id", selected_id) \
+    .single() \
+    .execute().data
 
-# 🔥 OVERRIDE IF USER JUST TOOK ACTION
-if "last_viewed_app" in st.session_state:
+def safe(x):
+    return x if x not in [None, "", "None"] else "—"
 
-    last_id = st.session_state.last_viewed_app
-
-    result = supabase.table("loan_applications") \
-        .select("*") \
-        .eq("id", last_id) \
-        .execute().data
-
-    if result:
-        app = result[0]
-# =========================================================
-# APPLICATION DETAILS (READ ONLY)
-# =========================================================
 st.markdown("## 📄 Application Overview")
-
-col1, col2 = st.columns(2)
-
-col1.write(f"**Client Name:** {app['client_name']}")
-col1.write(f"**Loan Amount:** ₦{app['loan_amount']:,.0f}")
-col1.write(f"**Tenor:** {app.get('tenor')} months")
-
-col2.write(f"**Borrower Type:** {app.get('borrower_type')}")
-col2.write(f"**Loan Purpose:** {app.get('loan_purpose')}")
-col2.write(f"**Score:** {app.get('score')}")
+st.write(f"**Client:** {app['client_name']}")
+st.write(f"**Amount:** ₦{app['loan_amount']:,.0f}")
+st.write(f"**Purpose:** {app.get('loan_purpose')}")
 
 st.markdown("---")
 
-# =========================================================
-# FINANCIAL SUMMARY
-# =========================================================
-st.markdown("## 📊 Financial Summary")
-
-st.write(f"**Outstanding Loans:** ₦{app.get('total_outstanding_loans', 0):,.0f}")
-st.write(f"**Monthly Repayment:** ₦{app.get('monthly_repayment', 0):,.0f}")
-st.write(f"**Default History:** {app.get('default_history')}")
-
-st.markdown("---")
-
-# =========================================================
-# COLLATERAL & BUFFER
-# =========================================================
-st.markdown("## 🏦 Collateral & Buffer")
-
-st.write(f"**Collateral Type:** {app.get('collateral_type')}")
-st.write(f"**Collateral Value:** ₦{app.get('collateral_value', 0):,.0f}")
-st.write(f"**Cash Reserve:** ₦{app.get('cash_reserve', 0):,.0f}")
-
-st.markdown("---")
-
-# =========================================================
-# CREDIT ASSESSMENT MEMO (FROM DATABASE - STANDARDIZED)
-# =========================================================
-
+# ===============================
+# CREDIT MEMO (FIXED)
+# ===============================
 st.markdown("## 🧾 Credit Assessment Memo")
 
 st.markdown(f"""
 **Borrower Summary**  
-{app.get("borrower_summary", "Not available")}
+{safe(app.get("borrower_summary"))}
 
 **Facility Request**  
-{app.get("facility_request", "Not available")}
+{safe(app.get("facility_request"))}
 
 **Risk Assessment**  
-{app.get("risk_assessment", "Not available")}
+{safe(app.get("risk_assessment"))}
 
 **Decision Summary**  
-{app.get("decision_summary", "Not available")}
+{safe(app.get("decision_summary"))}
 """)
 
-# ===============================
-# KEY STRENGTHS
-# ===============================
 st.markdown("### ✅ Key Strengths")
-strengths = app.get("ai_strengths") or []
+for s in app.get("ai_strengths") or ["—"]:
+    st.markdown(f"• {s}")
 
-for s in strengths:
-    st.markdown(f"• {s.replace('•','').strip()}")
-
-# ===============================
-# KEY RISKS
-# ===============================
 st.markdown("### ⚠️ Key Risks")
-risks = app.get("ai_risk_flags") or []
+for r in app.get("ai_risk_flags") or ["—"]:
+    st.markdown(f"• {r}")
 
-for r in risks:
-    st.markdown(f"• {r.replace('•','').strip()}")
-
-# ===============================
-# RECOMMENDATION
-# ===============================
 st.markdown("### 📌 Recommendation")
-st.markdown(app.get("ai_recommendation", "Not available"))
-
-# ===============================
-# APPROVAL HISTORY
-# ===============================
-
-st.markdown("## 🧾 Approval History")
-
-history = app.get("approval_history") or []
-
-if history:
-    for h in history:
-        st.markdown(
-            f"**{h['stage']}** → {h['action']}  \n"
-            f"Note: {h.get('note','')}  \n"
-            f"Time: {h['timestamp']}"
-        )
-else:
-    st.info("No approvals yet")
-
-# =========================================================
-# ANALYST REVIEW (READ ONLY)
-# =========================================================
-st.markdown("## 🧾 Analyst Review")
-
-st.write(f"**Analyst Notes:** {app.get('analyst_notes', 'No notes provided')}")
+st.markdown(safe(app.get("ai_recommendation")))
 
 st.markdown("---")
 
-# =========================================================
-# MANAGER DECISION
-# =========================================================
-st.markdown("## ✍️ Manager Decision")
-
-manager_notes = st.text_area("Manager Notes")
-decision_note = st.text_area(
-    "Approval / Rejection Note",
-    key="manager_note"
-)
-
+# ===============================
+# DECISION
+# ===============================
+note = st.text_area("Decision Note")
 
 col1, col2 = st.columns(2)
 
-# ===============================
-# APPROVE → FINAL APPROVER
-# ===============================
 with col1:
-
     if st.button("Approve"):
+        supabase.table("loan_applications").update({
+            "workflow_status": "MANAGER_APPROVED"
+        }).eq("id", app["id"]).execute()
+        st.success("Approved")
+        st.rerun()
 
-        history = app.get("approval_history") or []
-
-        history.append({
-            "stage": role.upper(),
-            "action": "APPROVED",
-            "user": user.id,
-            "timestamp": str(datetime.now()),
-            "note": st.session_state.get("decision_note", "")
-        })
-
-        supabase.table("loan_applications") \
-            .update({
-                "workflow_status": "MANAGER_APPROVED",
-                "approval_history": history
-            }) \
-            .eq("id", app["id"]) \
-            .execute()
-
-        st.session_state.last_viewed_app = app["id"]
-        st.success("Approved successfully")
-    
-
-# ===============================
-# REJECT → BACK TO ANALYST + INITIATOR
-# ===============================
 with col2:
     if st.button("Reject"):
-
-        history = app.get("approval_history") or []
-
-        history.append({
-            "stage": role.upper(),
-            "action": "REJECTED",
-            "user": user.id,
-            "timestamp": str(datetime.now()),
-            "note": st.session_state.get("decision_note", "")
-        })
-
-        supabase.table("loan_applications") \
-            .update({
-                "workflow_status": "MANAGER_REJECTED",
-                "approval_history": history
-            }) \
-            .eq("id", app["id"]) \
-            .execute()
-
-        st.session_state.last_viewed_app = app["id"]
-        st.success("Rejected successfully")
-
-
-# =========================================================
-# WORKFLOW TRACE
-# =========================================================
-st.markdown("---")
-st.markdown("## 🔄 Workflow Trace")
-
-st.write(f"**Initiated By:** {app.get('initiated_by')}")
-st.write(f"**Analyst:** {app.get('analyst_review_by')}")
-st.write(f"**Current Status:** {app.get('workflow_status')}")
+        supabase.table("loan_applications").update({
+            "workflow_status": "MANAGER_REJECTED"
+        }).eq("id", app["id"]).execute()
+        st.success("Rejected")
+        st.rerun()
