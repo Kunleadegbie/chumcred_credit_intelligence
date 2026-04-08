@@ -1,3 +1,4 @@
+# Final Approval
 
 import streamlit as st
 from db.supabase_client import supabase
@@ -799,3 +800,4 @@ st.write(f"**Initiated By:** {app.get('initiated_by')}")
 st.write(f"**Analyst:** {app.get('analyst_review_by')}")
 st.write(f"**Manager:** {app.get('manager_review_by')}")
 st.write(f"**Current Status:** {app.get('workflow_status')}")
+

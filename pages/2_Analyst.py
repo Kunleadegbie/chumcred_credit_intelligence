@@ -1,3 +1,4 @@
+# Analyst page
 
 import streamlit as st
 from db.supabase_client import supabase
