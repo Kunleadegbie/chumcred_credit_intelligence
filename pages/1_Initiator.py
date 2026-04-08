@@ -1,3 +1,5 @@
+# Initiator page
+
 import streamlit as st
 from db.supabase_client import supabase
 from workflow.sidebar_menu import render_sidebar
