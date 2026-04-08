@@ -442,9 +442,9 @@ else:
 
     st.success(f"{approved_app.get('client_name')} → Approved")
     st.markdown(
-        f"**Score:** {approved_app.get('score', 'N/A')}  
+        f"**Score:** {approved_app.get('score', 'N/A')}  \
 "
-        f"**Decision:** {approved_app.get('decision', 'APPROVED')}  
+        f"**Decision:** {approved_app.get('decision', 'APPROVED')}  \
 "
         f"**Status:** {approved_app.get('workflow_status')}"
     )
