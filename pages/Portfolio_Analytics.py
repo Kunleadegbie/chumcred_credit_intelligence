@@ -132,7 +132,16 @@ try:
     # ===============================
     st.subheader("📋 Portfolio Details")
 
-    st.dataframe(df)
+
+    display_df = df.copy()
+    if "id" in display_df.columns:
+        display_df = display_df.drop(columns=["id"])
+    if "initiated_by" in display_df.columns:
+        if "initiated_by_email" in display_df.columns:
+            display_df = display_df.drop(columns=["initiated_by"]).rename(columns={"initiated_by_email": "initiated_by"})
+        else:
+            display_df = display_df.drop(columns=["initiated_by"])
+    st.dataframe(display_df)
 
 except Exception as e:
     st.error(f"Dashboard error: {e}")

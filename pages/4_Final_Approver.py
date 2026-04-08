@@ -2,7 +2,6 @@ import streamlit as st
 from db.supabase_client import supabase
 from datetime import datetime
 from workflow.sidebar_menu import render_sidebar
-from institution_access import normalize_role, get_display_name, enforce_institution_access, build_actor_entry, render_history, get_stage_actor
 
 # ===============================
 # AUTH CHECK
@@ -34,16 +33,13 @@ else:
 # ===============================
 # EXTRACT ROLE
 # ===============================
-role = normalize_role(profile.get("role"))
+role = (profile.get("role") or "").strip().lower()
 institution = profile.get("institution") or ""
-email = profile.get("email") or getattr(user, "email", "") or ""
-display_name = get_display_name(profile, user)
 
 # ===============================
 # SIDEBAR
 # ===============================
 render_sidebar(role)
-enforce_institution_access(profile, "page")
 
 # ===============================
 # ACCESS CONTROL
@@ -57,7 +53,7 @@ if not allow("final_approver"):
     st.stop()
 
 st.title("🏛️ Final Credit Authority")
-st.caption(f"Institution: {institution} | User: {display_name} | Email: {email} | Role: {role}")
+st.caption(f"Institution: {institution}")
 
 # =========================================================
 # LOAD APPLICATIONS (ONLY MANAGER APPROVED)
@@ -341,7 +337,16 @@ st.markdown("---")
 st.markdown("## 🧾 Approval History")
 
 history = app.get("approval_history") or []
-render_history(history)
+
+if history:
+    for h in history:
+        st.markdown(
+            f"**{h['stage']}** → {h['action']}  \n"
+            f"Note: {h.get('note','')}  \n"
+            f"Time: {h['timestamp']}"
+        )
+else:
+    st.info("No approvals yet")
 
 # =========================================================
 # FINAL DECISION
@@ -359,7 +364,13 @@ col1, col2 = st.columns(2)
 with col1:
     if st.button("Approve"):
         history = app.get("approval_history") or []
-        history.append(build_actor_entry(profile, user, role, "APPROVED", decision_note))
+        history.append({
+            "stage": role.upper(),
+            "action": "APPROVED",
+            "user": user.id,
+            "timestamp": str(datetime.now()),
+            "note": decision_note
+        })
 
         supabase.table("loan_applications") \
             .update({
@@ -377,7 +388,13 @@ with col1:
 with col2:
     if st.button("Reject"):
         history = app.get("approval_history") or []
-        history.append(build_actor_entry(profile, user, role, "REJECTED", decision_note))
+        history.append({
+            "stage": role.upper(),
+            "action": "REJECTED",
+            "user": user.id,
+            "timestamp": str(datetime.now()),
+            "note": decision_note
+        })
 
         supabase.table("loan_applications") \
             .update({
@@ -398,7 +415,7 @@ with col2:
 st.markdown("---")
 st.markdown("## 🔄 Workflow Trace")
 
-st.write(f"**Initiated By:** {get_stage_actor(history, 'initiator')}")
-st.write(f"**Analyst:** {get_stage_actor(history, 'analyst')}")
-st.write(f"**Manager:** {get_stage_actor(history, 'manager')}")
+st.write(f"**Initiated By:** {app.get('initiated_by')}")
+st.write(f"**Analyst:** {app.get('analyst_review_by')}")
+st.write(f"**Manager:** {app.get('manager_review_by')}")
 st.write(f"**Current Status:** {app.get('workflow_status')}")
