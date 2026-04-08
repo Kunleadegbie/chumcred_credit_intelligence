@@ -1,7 +1,8 @@
 import streamlit as st
 
-
 def render_sidebar(role: str) -> None:
+    role = (role or "").strip().lower().replace(" ", "_")
+
     st.markdown("""
     <style>
     [data-testid="stSidebarNav"] {display: none;}
@@ -10,8 +11,7 @@ def render_sidebar(role: str) -> None:
 
     st.sidebar.title("Navigation")
 
-    # Initiator aliases
-    if role in ["initiator", "loan_officer"]:
+    if role in ["loan_officer", "initiator"]:
         st.sidebar.page_link("pages/1_Initiator.py", label="Initiator")
 
     elif role in ["credit_analyst", "analyst"]:
@@ -19,11 +19,17 @@ def render_sidebar(role: str) -> None:
 
     elif role == "manager":
         st.sidebar.page_link("pages/3_Manager.py", label="Manager")
+        st.sidebar.page_link("pages/5_Analytics.py", label="Analytics")
 
     elif role == "final_approver":
         st.sidebar.page_link("pages/4_Final_Approver.py", label="Final Approver")
+        st.sidebar.page_link("pages/5_Analytics.py", label="Analytics")
 
-    elif role in ["institution_admin", "super_admin"]:
+    elif role == "institution_admin":
+        st.sidebar.page_link("pages/5_Analytics.py", label="Analytics")
+        st.sidebar.page_link("pages/6_Admin_Roles.py", label="Institution Admin Panel")
+
+    elif role == "super_admin":
         st.sidebar.page_link("pages/1_Initiator.py", label="Initiator")
         st.sidebar.page_link("pages/2_Analyst.py", label="Analyst")
         st.sidebar.page_link("pages/3_Manager.py", label="Manager")
@@ -36,6 +42,5 @@ def render_sidebar(role: str) -> None:
     if st.sidebar.button("🚪 Logout"):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
-
         st.session_state.go_to_login = False
         st.rerun()
