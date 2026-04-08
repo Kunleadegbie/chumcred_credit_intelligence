@@ -193,16 +193,6 @@ for <b>{app.get('loan_purpose')}</b> over a tenor of
 
 <b>Risk Assessment</b><br>
 
-# ===============================
-# SAFE NARRATIVE DISPLAY
-# ===============================
-narrative = r.get("narrative", "")
-
-if narrative:
-    st.markdown("### 📄 AI Credit Narrative")
-    st.write(narrative)
-else:
-    st.info("No AI narrative available for this record.")
 <br><br>
 
 <b>Decision Summary</b><br>

@@ -193,7 +193,7 @@ for <b>{app.get('loan_purpose')}</b> over a tenor of
 <br><br>
 
 <b>Risk Assessment</b><br>
-{narrative}
+
 
 <br><br>
 
