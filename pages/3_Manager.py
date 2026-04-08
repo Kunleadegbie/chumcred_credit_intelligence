@@ -36,6 +36,8 @@ else:
 # ===============================
 role = normalize_role(profile.get("role"))
 institution = profile.get("institution") or ""
+email = profile.get("email") or getattr(user, "email", "") or ""
+display_name = get_display_name(profile, user)
 
 # ===============================
 # SIDEBAR
