@@ -63,19 +63,31 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# =========================================================
-# LOAD APPLICATIONS (ONLY SUBMITTED)
-# =========================================================
-applications = supabase.table("loan_applications") \
-    .select("*") \
-    .eq("institution", institution) \
-    .eq("workflow_status", "SUBMITTED") \
-    .order("created_at", desc=True) \
-    .execute().data
 
-if not applications:
-    st.info("No applications awaiting analyst review.")
-    st.stop()
+# ===============================
+# LOAD APPLICATIONS
+# ===============================
+apps = supabase.table("loan_applications").select("*").execute().data
+
+# ===============================
+# SELECT APPLICATION
+# ===============================
+app_options = {f"{a['client_name']} - ₦{a['loan_amount']:,.0f}": a["id"] for a in apps}
+
+selected_label = st.selectbox("Select Application", list(app_options.keys()))
+
+selected_id = app_options[selected_label]
+
+# ===============================
+# FETCH FULL RECORD (CRITICAL FIX)
+# ===============================
+app_resp = supabase.table("loan_applications") \
+    .select("*") \
+    .eq("id", selected_id) \
+    .single() \
+    .execute()
+
+app = app_resp.data
 
 # =========================================================
 # SELECT APPLICATION
