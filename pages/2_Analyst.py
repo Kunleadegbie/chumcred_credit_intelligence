@@ -326,22 +326,6 @@ st.markdown(memo["recommendation"])
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# ===============================
-# KEY INSIGHTS (NOW FIXED)
-# ===============================
-st.markdown("### ✅ Key Strengths")
-for s in memo["key_strength"].split("\n"):
-    st.markdown(s)
-
-st.markdown("### ⚠️ Key Risks")
-for r in memo["key_risk"].split("\n"):
-    st.markdown(r)
-
-st.markdown("### 📌 Recommendation")
-st.markdown(memo["recommendation"])
-
-st.markdown('</div>', unsafe_allow_html=True)
-
 # =========================================================
 # APPROVAL HISTORY
 # =========================================================
