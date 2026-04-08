@@ -56,14 +56,25 @@ st.title("🏛️ Final Credit Authority")
 st.caption(f"Institution: {institution}")
 
 # =========================================================
-# LOAD APPLICATIONS (ONLY MANAGER APPROVED)
+# LOAD APPLICATIONS
+# Pending final reviews + final-reviewed records retained
 # =========================================================
-applications = supabase.table("loan_applications") \
+all_applications = supabase.table("loan_applications") \
     .select("*") \
     .eq("institution", institution) \
-    .eq("workflow_status", "MANAGER_APPROVED") \
     .order("created_at", desc=True) \
-    .execute().data
+    .execute().data or []
+
+allowed_statuses = {
+    "MANAGER_APPROVED",
+    "FINAL_APPROVED",
+    "FINAL_REJECTED",
+}
+
+applications = [
+    a for a in all_applications
+    if (a.get("workflow_status") or "") in allowed_statuses
+]
 
 if not applications:
     st.info("No applications awaiting final approval.")
@@ -72,12 +83,34 @@ if not applications:
 # =========================================================
 # SELECT APPLICATION
 # =========================================================
-app_map = {
-    f"{a['client_name']} | ₦{a['loan_amount']:,.0f} | Score {a.get('score', 0)}": a["id"]
-    for a in applications
-}
+def format_money(value):
+    try:
+        return f"₦{float(value or 0):,.0f}"
+    except Exception:
+        return "₦0"
 
-selected_label = st.selectbox("Select Application", list(app_map.keys()))
+app_labels = []
+app_map = {}
+
+for a in applications:
+    label = (
+        f"{a.get('client_name', 'Unknown Client')} | "
+        f"{format_money(a.get('loan_amount'))} | "
+        f"Score {a.get('score', 0)} | "
+        f"{a.get('workflow_status', 'UNKNOWN')}"
+    )
+    app_labels.append(label)
+    app_map[label] = a.get("id")
+
+default_index = 0
+last_viewed_app = st.session_state.get("last_viewed_app")
+if last_viewed_app:
+    for idx, label in enumerate(app_labels):
+        if app_map[label] == last_viewed_app:
+            default_index = idx
+            break
+
+selected_label = st.selectbox("Select Application", app_labels, index=default_index)
 selected_id = app_map[selected_label]
 
 # ALWAYS FETCH FRESH RECORD
@@ -110,6 +143,28 @@ def clean_list(values):
         if s and s.lower() not in ["none", "null", "—"]:
             cleaned.append(s)
     return cleaned
+
+def get_latest_stage_note(history_items, stage_name):
+    for item in reversed(history_items or []):
+        if str(item.get("stage", "")).upper() == str(stage_name).upper():
+            note = str(item.get("note", "") or "").strip()
+            if note:
+                return note
+    return ""
+
+def split_final_history_note(note_text):
+    text = str(note_text or "").strip()
+    if not text.startswith("Final Approval Notes:"):
+        return "", text
+
+    if "\n\nDecision Note:" in text:
+        first_part, second_part = text.split("\n\nDecision Note:", 1)
+        parsed_final_notes = first_part.replace("Final Approval Notes:", "", 1).strip()
+        parsed_decision_note = second_part.strip()
+        return parsed_final_notes, parsed_decision_note
+
+    parsed_final_notes = text.replace("Final Approval Notes:", "", 1).strip()
+    return parsed_final_notes, ""
 
 def generate_bank_grade_memo(record):
     name = record.get("client_name", "Borrower")
@@ -261,7 +316,7 @@ st.markdown("## 📄 Executive Summary")
 col1, col2 = st.columns(2)
 
 col1.write(f"**Client Name:** {app['client_name']}")
-col1.write(f"**Loan Amount:** ₦{app['loan_amount']:,.0f}")
+col1.write(f"**Loan Amount:** {format_money(app.get('loan_amount'))}")
 col1.write(f"**Tenor:** {app.get('tenor')} months")
 
 col2.write(f"**Borrower Type:** {app.get('borrower_type')}")
@@ -275,8 +330,8 @@ st.markdown("---")
 # =========================================================
 st.markdown("## ⚠️ Risk & Financial Position")
 
-st.write(f"**Outstanding Loans:** ₦{app.get('total_outstanding_loans', 0):,.0f}")
-st.write(f"**Monthly Repayment:** ₦{app.get('monthly_repayment', 0):,.0f}")
+st.write(f"**Outstanding Loans:** {format_money(app.get('total_outstanding_loans'))}")
+st.write(f"**Monthly Repayment:** {format_money(app.get('monthly_repayment'))}")
 st.write(f"**Default History:** {app.get('default_history')}")
 
 st.markdown("---")
@@ -287,8 +342,8 @@ st.markdown("---")
 st.markdown("## 🏦 Collateral & Support")
 
 st.write(f"**Collateral Type:** {app.get('collateral_type')}")
-st.write(f"**Collateral Value:** ₦{app.get('collateral_value', 0):,.0f}")
-st.write(f"**Cash Reserve:** ₦{app.get('cash_reserve', 0):,.0f}")
+st.write(f"**Collateral Value:** {format_money(app.get('collateral_value'))}")
+st.write(f"**Cash Reserve:** {format_money(app.get('cash_reserve'))}")
 
 st.markdown("---")
 
@@ -353,31 +408,63 @@ else:
 # =========================================================
 st.markdown("## 🏁 Final Decision")
 
-final_notes = st.text_area("Final Approval Notes")
+history_saved_note = get_latest_stage_note(history, role.upper())
+parsed_history_final_notes, parsed_history_decision_note = split_final_history_note(history_saved_note)
+
+existing_final_notes = str(app.get("final_notes") or "").strip() if "final_notes" in app else parsed_history_final_notes
+existing_decision_note = parsed_history_decision_note or history_saved_note
+
+is_pending_final_action = (app.get("workflow_status") or "") == "MANAGER_APPROVED"
+
+final_notes = st.text_area(
+    "Final Approval Notes",
+    value=existing_final_notes,
+    key=f"final_notes_{app['id']}"
+)
 decision_note = st.text_area(
     "Approval / Rejection Note",
-    key="final_note"
+    value=existing_decision_note,
+    key=f"final_note_{app['id']}"
 )
+
+if not is_pending_final_action:
+    st.info("This application has already been concluded at final approval stage. Saved data is shown for reference.")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    if st.button("Approve"):
-        history = app.get("approval_history") or []
-        history.append({
+    if st.button("Approve", disabled=not is_pending_final_action, key=f"approve_final_{app['id']}"):
+        updated_history = app.get("approval_history") or []
+
+        history_note = decision_note.strip()
+        if final_notes.strip() and "final_notes" not in app:
+            if decision_note.strip():
+                history_note = f"Final Approval Notes: {final_notes.strip()}\n\nDecision Note: {decision_note.strip()}"
+            else:
+                history_note = f"Final Approval Notes: {final_notes.strip()}"
+
+        updated_history.append({
             "stage": role.upper(),
             "action": "APPROVED",
             "user": user.id,
             "timestamp": str(datetime.now()),
-            "note": decision_note
+            "note": history_note
         })
 
+        update_payload = {
+            "workflow_status": "FINAL_APPROVED",
+            "approval_history": updated_history
+        }
+
+        if "final_notes" in app:
+            update_payload["final_notes"] = final_notes
+        if "final_review_by" in app:
+            update_payload["final_review_by"] = user.id
+        if "final_review_at" in app:
+            update_payload["final_review_at"] = str(datetime.now())
+
         supabase.table("loan_applications") \
-            .update({
-                "workflow_status": "FINAL_APPROVED",
-                "approval_history": history,
-                "final_notes": final_notes
-            }) \
+            .update(update_payload) \
             .eq("id", app["id"]) \
             .execute()
 
@@ -386,22 +473,38 @@ with col1:
         st.rerun()
 
 with col2:
-    if st.button("Reject"):
-        history = app.get("approval_history") or []
-        history.append({
+    if st.button("Reject", disabled=not is_pending_final_action, key=f"reject_final_{app['id']}"):
+        updated_history = app.get("approval_history") or []
+
+        history_note = decision_note.strip()
+        if final_notes.strip() and "final_notes" not in app:
+            if decision_note.strip():
+                history_note = f"Final Approval Notes: {final_notes.strip()}\n\nDecision Note: {decision_note.strip()}"
+            else:
+                history_note = f"Final Approval Notes: {final_notes.strip()}"
+
+        updated_history.append({
             "stage": role.upper(),
             "action": "REJECTED",
             "user": user.id,
             "timestamp": str(datetime.now()),
-            "note": decision_note
+            "note": history_note
         })
 
+        update_payload = {
+            "workflow_status": "FINAL_REJECTED",
+            "approval_history": updated_history
+        }
+
+        if "final_notes" in app:
+            update_payload["final_notes"] = final_notes
+        if "final_review_by" in app:
+            update_payload["final_review_by"] = user.id
+        if "final_review_at" in app:
+            update_payload["final_review_at"] = str(datetime.now())
+
         supabase.table("loan_applications") \
-            .update({
-                "workflow_status": "FINAL_REJECTED",
-                "approval_history": history,
-                "final_notes": final_notes
-            }) \
+            .update(update_payload) \
             .eq("id", app["id"]) \
             .execute()
 
