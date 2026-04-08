@@ -480,6 +480,7 @@ if "last_result" in st.session_state:
             "risk_grade": result["risk_grade"],
             "risk_level": result["risk_level"],
             "dscr": result["dscr"],
+            "collateral_cover": result["collateral_cover"],
             "monthly_income": monthly_income,
             "revenue": revenue,
             "monthly_expenses": expenses,
