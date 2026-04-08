@@ -4,6 +4,7 @@ import pandas as pd
 from db.supabase_client import supabase
 from workflow.application_service import get_all_applications, get_institution_applications
 from workflow.sidebar_menu import render_sidebar
+from institution_access import normalize_role, get_display_name, enforce_institution_access
 
 # ===============================
 # AUTH CHECK
@@ -23,14 +24,16 @@ resp = supabase.table("user_profiles") \
 
 profile = resp.data[0] if resp.data else {}
 
-role = (profile.get("role") or "").strip().lower().replace(" ", "_")
+role = normalize_role(profile.get("role"))
 institution = profile.get("institution") or ""
 email = profile.get("email") or ""
+display_name = get_display_name(profile, user)
 
 # ===============================
 # SIDEBAR
 # ===============================
 render_sidebar(role)
+enforce_institution_access(profile, "analytics")
 
 # ===============================
 # ACCESS CONTROL
@@ -41,7 +44,7 @@ if role not in allowed_roles:
     st.stop()
 
 st.title("📊 Portfolio Analytics Dashboard")
-st.caption(f"Institution: {institution} | User: {email} | Role: {role}")
+st.caption(f"Institution: {institution} | User: {display_name} | Email: {email} | Role: {role}")
 
 # ===============================
 # LOAD DATA
