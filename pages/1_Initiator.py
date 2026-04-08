@@ -504,22 +504,113 @@ if "last_result" in st.session_state:
         except Exception as e:
             st.error(f"Submission failed: {e}")
 
-st.markdown("## 🔄 Returned Applications")
-rejected = supabase.table("loan_applications").select("*").eq("initiated_by", user.id).execute().data or []
-for r in rejected:
-    if str(r.get("workflow_status") or "").endswith("REJECTED"):
-        st.warning(f"{r['client_name']} → {r['workflow_status']}")
+st.markdown("## 📬 Application Feedback & Decisions")
 
-st.markdown("## 💰 Approved Loans")
-approved = supabase.table("loan_applications").select("*").eq("initiated_by", user.id).eq("workflow_status", "FINAL_APPROVED").execute().data or []
-for r in approved:
-    st.success(f"{r['client_name']} → Approved")
-    if st.button(f"🖨️ Generate Memo - {r['client_name']}", key=f"memo_btn_{r['id']}"):
-        file_path = generate_credit_memo(r)
+all_my_apps = supabase.table("loan_applications").select("*").eq("initiated_by", user.id).order("created_at", desc=True).execute().data or []
+
+def get_latest_history_entry(history_items):
+    if history_items:
+        return history_items[-1]
+    return {}
+
+def extract_feedback(record):
+    history = record.get("approval_history") or []
+    latest = get_latest_history_entry(history)
+    stage = str(latest.get("stage", "") or "—")
+    action = str(latest.get("action", "") or "")
+    note = str(latest.get("note", "") or "").strip()
+
+    workflow_status = str(record.get("workflow_status") or "")
+    feedback = note or "No feedback provided."
+
+    if workflow_status == "ANALYST_REJECTED":
+        review_notes = str(record.get("analyst_notes") or "").strip()
+        if review_notes and review_notes not in feedback:
+            feedback = f"{feedback}\n\nAnalyst Notes: {review_notes}" if note else review_notes
+    elif workflow_status == "MANAGER_REJECTED":
+        review_notes = str(record.get("manager_notes") or "").strip()
+        if review_notes and review_notes not in feedback:
+            feedback = f"{feedback}\n\nManager Notes: {review_notes}" if note else review_notes
+    elif workflow_status == "FINAL_REJECTED":
+        review_notes = str(record.get("final_notes") or "").strip()
+        if review_notes and review_notes not in feedback:
+            feedback = f"{feedback}\n\nFinal Approval Notes: {review_notes}" if note else review_notes
+
+    return {
+        "stage": stage,
+        "action": action,
+        "feedback": feedback,
+    }
+
+rejected_apps = [a for a in all_my_apps if str(a.get("workflow_status") or "").endswith("REJECTED")]
+approved_apps = [a for a in all_my_apps if str(a.get("workflow_status") or "") == "FINAL_APPROVED"]
+
+# Rejected applications dropdown
+st.markdown("### ❌ Rejected Applications")
+if rejected_apps:
+    rejected_options = {}
+    rejected_labels = []
+    for app in rejected_apps:
+        label = (
+            f"{app.get('client_name', 'Unknown Client')} | "
+            f"{format_money(app.get('loan_amount'))} | "
+            f"{app.get('workflow_status', 'REJECTED')}"
+        )
+        rejected_labels.append(label)
+        rejected_options[label] = app
+
+    selected_rejected_label = st.selectbox(
+        "Select Rejected Application",
+        rejected_labels,
+        key="rejected_app_dropdown"
+    )
+    selected_rejected = rejected_options[selected_rejected_label]
+    rejected_feedback = extract_feedback(selected_rejected)
+
+    c1, c2 = st.columns(2)
+    c1.error(f"**Client:** {selected_rejected.get('client_name', 'Unknown')}  \n**Status:** {selected_rejected.get('workflow_status', 'REJECTED')}")
+    c2.warning(f"**Rejected At Stage:** {rejected_feedback['stage'] or '—'}  \n**Action:** {rejected_feedback['action'] or 'REJECTED'}")
+
+    st.markdown("**Reason / Feedback**")
+    st.info(rejected_feedback["feedback"])
+else:
+    st.info("No rejected applications yet.")
+
+# Approved applications dropdown
+st.markdown("### ✅ Approved Applications")
+if approved_apps:
+    approved_options = {}
+    approved_labels = []
+    for app in approved_apps:
+        label = (
+            f"{app.get('client_name', 'Unknown Client')} | "
+            f"{format_money(app.get('loan_amount'))} | "
+            f"Score {app.get('credit_score', app.get('score', 0))}/100"
+        )
+        approved_labels.append(label)
+        approved_options[label] = app
+
+    selected_approved_label = st.selectbox(
+        "Select Approved Application",
+        approved_labels,
+        key="approved_app_dropdown"
+    )
+    selected_approved = approved_options[selected_approved_label]
+
+    d1, d2, d3 = st.columns(3)
+    d1.success(f"**Client:** {selected_approved.get('client_name', 'Unknown')}  \n**Status:** {selected_approved.get('workflow_status', 'FINAL_APPROVED')}")
+    d2.write(f"**Credit Score:** {selected_approved.get('credit_score', selected_approved.get('score', 0))}/100")
+    d3.write(f"**Risk Grade:** {selected_approved.get('risk_grade', '—')}")
+
+    if st.button("🖨️ Generate Memo for Selected Approval", key=f"memo_btn_{selected_approved['id']}"):
+        file_path = generate_credit_memo(selected_approved)
         with open(file_path, "rb") as f:
             st.download_button(
-                label="Download Memo",
+                label="Download Approval Memo",
                 data=f,
-                file_name=f"{r['client_name']}_credit_memo.pdf",
-                mime="application/pdf"
+                file_name=f"{selected_approved['client_name']}_credit_memo.pdf",
+                mime="application/pdf",
+                key=f"download_memo_{selected_approved['id']}"
             )
+else:
+    st.info("No approved applications yet.")
