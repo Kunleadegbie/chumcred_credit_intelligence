@@ -230,12 +230,9 @@ def generate_bank_grade_memo(record):
         recommendation = "The facility is recommended for APPROVAL without conditions."
     elif decision == "APPROVE WITH CONDITIONS":
         recommendation = (
-            "The facility is recommended for APPROVAL subject to:
-"
-            "• Verification of financial and operating records
-"
-            "• Ongoing monitoring of repayment performance
-"
+            "The facility is recommended for APPROVAL subject to:\n"
+            "• Verification of financial and operating records\n"
+            "• Ongoing monitoring of repayment performance\n"
             "• Proper perfection of collateral documentation"
         )
     else:
