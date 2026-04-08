@@ -1,3 +1,4 @@
+
 import streamlit as st
 from db.supabase_client import supabase
 from datetime import datetime
@@ -52,6 +53,384 @@ if not allow("manager"):
     st.error("Access denied")
     st.stop()
 
+
+def format_money(value):
+    try:
+        return f"₦{float(value or 0):,.0f}"
+    except Exception:
+        return "₦0"
+
+def safe_float(value, default=0.0):
+    try:
+        if value in [None, "", "None", "null"]:
+            return float(default)
+        return float(value)
+    except Exception:
+        return float(default)
+
+def safe_text(value, fallback="—"):
+    if value is None:
+        return fallback
+    if isinstance(value, str) and value.strip() in ["", "None", "null"]:
+        return fallback
+    return value
+
+def clean_list(values):
+    if not values:
+        return []
+    cleaned = []
+    for item in values:
+        if item is None:
+            continue
+        text = str(item).replace("•", "").strip()
+        if text and text.lower() not in ["none", "null", "—"]:
+            cleaned.append(text)
+    return cleaned
+
+def unique_list(values):
+    output = []
+    seen = set()
+    for item in values or []:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        lower = text.lower()
+        if lower not in seen:
+            seen.add(lower)
+            output.append(text)
+    return output
+
+def get_latest_stage_note(history_items, stage_name):
+    for item in reversed(history_items or []):
+        if str(item.get("stage", "")).upper() == str(stage_name).upper():
+            note = str(item.get("note", "") or "").strip()
+            if note:
+                return note
+    return ""
+
+def split_final_history_note(note_text):
+    text = str(note_text or "").strip()
+    if not text.startswith("Final Approval Notes:"):
+        return "", text
+
+    if "\n\nDecision Note:" in text:
+        first_part, second_part = text.split("\n\nDecision Note:", 1)
+        parsed_final_notes = first_part.replace("Final Approval Notes:", "", 1).strip()
+        parsed_decision_note = second_part.strip()
+        return parsed_final_notes, parsed_decision_note
+
+    parsed_final_notes = text.replace("Final Approval Notes:", "", 1).strip()
+    return parsed_final_notes, ""
+
+def build_safe_update_payload(existing_record, payload):
+    return {key: value for key, value in payload.items() if key in (existing_record or {})}
+
+def get_known_application_columns():
+    try:
+        rows = supabase.table("loan_applications").select("*").limit(1).execute().data or []
+        if rows:
+            return set(rows[0].keys())
+    except Exception:
+        pass
+    return set()
+
+def estimate_monthly_net_cash_flow(record):
+    borrower_type = str(record.get("borrower_type") or "").strip().lower()
+
+    monthly_income = safe_float(record.get("monthly_income"))
+    revenue = safe_float(record.get("revenue") or record.get("monthly_revenue"))
+    bank_inflow = safe_float(record.get("bank_inflow") or record.get("average_bank_inflow") or record.get("inflow"))
+    expenses = safe_float(record.get("monthly_expenses") or record.get("expenses"))
+    deductions = safe_float(record.get("deductions") or record.get("existing_deductions"))
+    daily_sales = safe_float(record.get("daily_sales"))
+    avg_balance = safe_float(record.get("avg_account_balance") or record.get("average_balance"))
+    cash_reserve = safe_float(record.get("cash_reserve"))
+    loan_amount = safe_float(record.get("loan_amount"))
+    tenor = max(int(safe_float(record.get("tenor"), 1) or 1), 1)
+
+    if borrower_type == "salary earner":
+        net_cash_flow = max(monthly_income - deductions, 0.0)
+        gross_cash_flow = max(monthly_income, bank_inflow, 0.0)
+    elif borrower_type == "sme":
+        operating_surplus = revenue - expenses
+        net_cash_flow = max(operating_surplus, bank_inflow - (expenses * 0.8), 0.0)
+        gross_cash_flow = max(revenue, bank_inflow, 0.0)
+    else:
+        monthly_sales = daily_sales * 26 if daily_sales > 0 else 0.0
+        net_cash_flow = max(monthly_sales - expenses, monthly_sales * 0.22, 0.0)
+        gross_cash_flow = max(monthly_sales, bank_inflow, monthly_income, 0.0)
+
+    if net_cash_flow <= 0:
+        fallback_cash_flow = max((cash_reserve * 0.20), (avg_balance * 0.35), (loan_amount / tenor) * 1.10, 0.0)
+        net_cash_flow = fallback_cash_flow
+
+    return round(net_cash_flow, 2), round(gross_cash_flow, 2)
+
+def calculate_bank_grade(record):
+    name = record.get("client_name", "Borrower")
+    borrower_type = str(record.get("borrower_type") or "Borrower").strip()
+    purpose = str(record.get("loan_purpose") or "business operations").strip()
+    loan_amount = safe_float(record.get("loan_amount"))
+    tenor = max(int(safe_float(record.get("tenor"), 1) or 1), 1)
+
+    monthly_repayment = safe_float(record.get("monthly_repayment"))
+    outstanding = safe_float(record.get("total_outstanding_loans"))
+    collateral_value = safe_float(record.get("collateral_value"))
+    cash_reserve = safe_float(record.get("cash_reserve"))
+    avg_balance = safe_float(record.get("avg_account_balance") or record.get("average_balance"))
+    default_history = str(record.get("default_history") or "").strip().lower()
+    years = safe_float(
+        record.get("years")
+        or record.get("years_in_business")
+        or record.get("years_in_role")
+    )
+    employment_type = str(record.get("employment_type") or "").strip()
+    location = str(record.get("location") or "").strip()
+
+    estimated_net_cash_flow, gross_cash_flow = estimate_monthly_net_cash_flow(record)
+    dscr = 9.99 if monthly_repayment <= 0 else round(estimated_net_cash_flow / monthly_repayment, 2)
+    collateral_cover = 0.0 if loan_amount <= 0 else round(collateral_value / loan_amount, 2)
+    liquidity_ratio = 9.99 if monthly_repayment <= 0 else round((cash_reserve + avg_balance) / monthly_repayment, 2)
+
+    score = 0
+    strengths = []
+    risks = []
+    mitigants = []
+
+    # Repayment Capacity - 35
+    if dscr >= 2.00:
+        score += 35
+        strengths.append(f"Strong repayment capacity with DSCR of {dscr:.2f}x")
+    elif dscr >= 1.50:
+        score += 30
+        strengths.append(f"Good repayment coverage with DSCR of {dscr:.2f}x")
+    elif dscr >= 1.25:
+        score += 25
+        strengths.append(f"Acceptable repayment capacity with DSCR of {dscr:.2f}x")
+    elif dscr >= 1.00:
+        score += 18
+        risks.append(f"Borderline repayment capacity with DSCR of {dscr:.2f}x")
+    elif dscr >= 0.75:
+        score += 10
+        risks.append(f"Weak repayment capacity with DSCR of {dscr:.2f}x")
+    else:
+        score += 3
+        risks.append(f"Unsatisfactory repayment capacity with DSCR of {dscr:.2f}x")
+
+    # Collateral Support - 20
+    if collateral_cover >= 1.20:
+        score += 20
+        strengths.append(f"Facility is well secured with collateral cover of {collateral_cover:.2f}x")
+    elif collateral_cover >= 1.00:
+        score += 18
+        strengths.append(f"Facility is fully secured with collateral cover of {collateral_cover:.2f}x")
+    elif collateral_cover >= 0.75:
+        score += 14
+        strengths.append(f"Reasonable collateral support available at {collateral_cover:.2f}x cover")
+    elif collateral_cover >= 0.50:
+        score += 9
+        risks.append(f"Collateral support is moderate at {collateral_cover:.2f}x cover")
+    elif collateral_cover > 0:
+        score += 5
+        risks.append(f"Collateral support is weak at {collateral_cover:.2f}x cover")
+    else:
+        risks.append("Facility is effectively unsecured")
+
+    # Liquidity - 15
+    if liquidity_ratio >= 6:
+        score += 15
+        strengths.append("Strong liquidity buffer relative to repayment burden")
+    elif liquidity_ratio >= 3:
+        score += 12
+        strengths.append("Good liquidity buffer supports repayment stability")
+    elif liquidity_ratio >= 1.5:
+        score += 9
+        strengths.append("Moderate liquidity support available")
+    elif liquidity_ratio >= 1.0:
+        score += 6
+        risks.append("Liquidity is adequate but not strong")
+    else:
+        score += 2
+        risks.append("Liquidity buffer is weak for the proposed debt service")
+
+    # Existing Exposure - 10
+    if outstanding <= 0:
+        score += 10
+        strengths.append("No material existing debt exposure recorded")
+    elif loan_amount > 0 and outstanding <= (0.50 * loan_amount):
+        score += 8
+        strengths.append("Existing debt exposure is within manageable level")
+    elif loan_amount > 0 and outstanding <= loan_amount:
+        score += 6
+        strengths.append("Existing debt exposure is moderate")
+    else:
+        score += 2
+        risks.append("Existing debt exposure is high relative to requested facility")
+
+    # Credit History - 10
+    if default_history in ["no", "none", "", "nil", "n/a"]:
+        score += 10
+        strengths.append("No prior default history observed")
+    else:
+        risks.append("Adverse credit history/default flag detected")
+
+    # Stability - 5
+    if years >= 5:
+        score += 5
+        strengths.append("Strong operating/employment stability track record")
+    elif years >= 2:
+        score += 4
+        strengths.append("Moderate operating/employment stability observed")
+    elif years >= 1:
+        score += 3
+    else:
+        score += 1
+        risks.append("Limited operating/employment history available")
+
+    # Account Conduct / Behaviour - 5
+    if gross_cash_flow > 0 and avg_balance >= (gross_cash_flow * 0.15):
+        score += 5
+        strengths.append("Average account balance supports stable account conduct")
+    elif avg_balance >= monthly_repayment and monthly_repayment > 0:
+        score += 4
+        strengths.append("Account balance trend offers some comfort for repayment")
+    elif cash_reserve > 0:
+        score += 3
+        mitigants.append("Available cash reserve provides partial comfort")
+    else:
+        score += 1
+        risks.append("Average balance profile is weak relative to the facility size")
+
+    credit_score = int(max(0, min(round(score), 100)))
+
+    if credit_score >= 80 and dscr >= 1.25 and default_history in ["no", "none", "", "nil", "n/a"]:
+        risk_grade = "A"
+        risk_level = "Low Risk"
+        decision = "APPROVE"
+        recommendation = (
+            "The facility is recommended for APPROVAL subject to standard documentation, "
+            "drawdown conditions, and routine post-disbursement monitoring."
+        )
+    elif credit_score >= 65 and dscr >= 1.00:
+        risk_grade = "B"
+        risk_level = "Moderate Risk"
+        decision = "APPROVE WITH CONDITIONS"
+        recommendation = (
+            "The facility is recommended for APPROVAL WITH CONDITIONS subject to verification "
+            "of income/cash flow, perfection of collateral, and closer repayment monitoring."
+        )
+        mitigants.extend([
+            "Verify recent cash-flow or salary evidence before drawdown",
+            "Perfect collateral and supporting legal documentation",
+            "Place account turnover and repayment monitoring on watchlist for first 3 months",
+        ])
+    else:
+        risk_grade = "C"
+        risk_level = "High Risk"
+        decision = "REJECT"
+        recommendation = (
+            "The facility is recommended for REJECTION due to weak repayment capacity and/or "
+            "insufficient risk mitigants relative to the proposed exposure."
+        )
+        mitigants.append("Consider restructuring facility size, tenor, or collateral support before reconsideration")
+
+    if employment_type:
+        mitigants.append(f"Employment/Business classification noted: {employment_type}")
+    if location:
+        mitigants.append(f"Location factor captured as {location}")
+
+    borrower_profile = (
+        f"{name} is a {borrower_type.lower()} requesting credit support for {purpose}. "
+        f"The proposed facility amount is {format_money(loan_amount)} for a tenor of {tenor} months."
+    )
+
+    facility_details = (
+        f"Requested facility: {format_money(loan_amount)} over {tenor} months for {purpose}. "
+        f"Monthly debt service obligation is estimated at {format_money(monthly_repayment)}."
+    )
+
+    financial_summary = (
+        f"Estimated monthly net cash flow is {format_money(estimated_net_cash_flow)}. "
+        f"Existing outstanding obligations stand at {format_money(outstanding)} while "
+        f"cash reserve and average account balance stand at {format_money(cash_reserve)} "
+        f"and {format_money(avg_balance)} respectively."
+    )
+
+    risk_assessment = (
+        f"The obligor is graded {risk_grade} ({risk_level}) with a credit score of "
+        f"{credit_score}/100 and DSCR of {dscr:.2f}x. Collateral cover is {collateral_cover:.2f}x. "
+        f"The assessment reflects repayment capacity, leverage, collateral support, "
+        f"liquidity profile, and credit history."
+    )
+
+    borrower_summary = borrower_profile
+    facility_request = facility_details
+    decision_summary = (
+        f"Final recommendation is {decision}. The obligor is classified as Risk Grade {risk_grade} "
+        f"with a score of {credit_score}/100."
+    )
+
+    if not mitigants:
+        mitigants = ["Standard documentation and post-disbursement monitoring will apply"]
+
+    return {
+        "credit_score": credit_score,
+        "score": credit_score,
+        "risk_grade": risk_grade,
+        "risk_level": risk_level,
+        "decision": decision,
+        "dscr": round(dscr, 2),
+        "collateral_cover": collateral_cover,
+        "liquidity_ratio": liquidity_ratio,
+        "estimated_net_cash_flow": round(estimated_net_cash_flow, 2),
+        "borrower_profile": borrower_profile,
+        "facility_details": facility_details,
+        "financial_summary": financial_summary,
+        "risk_assessment": risk_assessment,
+        "mitigants": "\n".join([f"• {item}" for item in unique_list(mitigants)]),
+        "recommendation": recommendation,
+        "borrower_summary": borrower_summary,
+        "facility_request": facility_request,
+        "decision_summary": decision_summary,
+        "ai_strengths": unique_list(strengths) or ["No strong factors identified"],
+        "ai_risk_flags": unique_list(risks) or ["No major risks identified"],
+        "ai_recommendation": recommendation,
+    }
+
+def merge_ai_result(bank_result, external_ai=None):
+    external_ai = external_ai or {}
+
+    merged_strengths = unique_list(
+        list(bank_result.get("ai_strengths", [])) +
+        list(external_ai.get("ai_strengths", []))
+    )
+    merged_risks = unique_list(
+        list(bank_result.get("ai_risk_flags", [])) +
+        list(external_ai.get("ai_risk_flags", []))
+    )
+
+    return {
+        "borrower_profile": bank_result.get("borrower_profile"),
+        "facility_details": bank_result.get("facility_details"),
+        "financial_summary": bank_result.get("financial_summary"),
+        "risk_assessment": bank_result.get("risk_assessment"),
+        "mitigants": bank_result.get("mitigants"),
+        "recommendation": bank_result.get("recommendation"),
+        "ai_strengths": merged_strengths or ["No strong factors identified"],
+        "ai_risk_flags": merged_risks or ["No major risks identified"],
+        "ai_recommendation": bank_result.get("ai_recommendation"),
+        "ai_narrative": (
+            f"Credit Score: {bank_result.get('credit_score')}/100 | "
+            f"Risk Grade: {bank_result.get('risk_grade')} | "
+            f"DSCR: {bank_result.get('dscr'):.2f}x | "
+            f"Decision: {bank_result.get('decision')}"
+        ),
+        "borrower_summary": bank_result.get("borrower_summary"),
+        "facility_request": bank_result.get("facility_request"),
+        "decision_summary": bank_result.get("decision_summary"),
+    }
+
+
 st.title("🏁 Credit Manager Desk")
 st.caption(f"Institution: {institution}")
 
@@ -85,12 +464,6 @@ if not applications:
 # =========================================================
 # SELECT APPLICATION
 # =========================================================
-def format_money(value):
-    try:
-        return f"₦{float(value or 0):,.0f}"
-    except Exception:
-        return "₦0"
-
 app_labels = []
 app_map = {}
 
@@ -123,153 +496,7 @@ app_resp = supabase.table("loan_applications") \
     .execute()
 
 app = app_resp.data
-
-# =========================================================
-# HELPERS
-# =========================================================
-def safe_text(val, fallback="—"):
-    if val is None:
-        return fallback
-    if isinstance(val, str) and val.strip() in ["", "None", "null"]:
-        return fallback
-    return val
-
-def clean_list(values):
-    if not values:
-        return []
-    cleaned = []
-    for v in values:
-        if v is None:
-            continue
-        s = str(v).replace("•", "").strip()
-        if s and s.lower() not in ["none", "null", "—"]:
-            cleaned.append(s)
-    return cleaned
-
-def get_latest_stage_note(history_items, stage_name):
-    for item in reversed(history_items or []):
-        if str(item.get("stage", "")).upper() == str(stage_name).upper():
-            note = str(item.get("note", "") or "").strip()
-            if note:
-                return note
-    return ""
-
-def generate_bank_grade_memo(record):
-    name = record.get("client_name", "Borrower")
-    loan_amount = float(record.get("loan_amount") or 0)
-    purpose = record.get("loan_purpose") or "business operations"
-    tenor = record.get("tenor") or 0
-
-    repayment = float(record.get("monthly_repayment") or 0)
-    reserve = float(record.get("cash_reserve") or 0)
-    outstanding = float(record.get("total_outstanding_loans") or 0)
-    collateral = float(record.get("collateral_value") or 0)
-    default_history = str(record.get("default_history") or "").strip().lower()
-
-    score = 0
-    strengths = []
-    risks = []
-
-    # Liquidity / repayment buffer
-    if repayment <= 0:
-        score += 2
-        strengths.append("No immediate repayment burden has been recorded")
-    elif reserve > repayment * 3:
-        score += 3
-        strengths.append("Strong liquidity buffer relative to repayment obligations")
-    elif reserve > repayment:
-        score += 2
-        strengths.append("Moderate liquidity support for repayment")
-    else:
-        risks.append("Weak liquidity position relative to repayment burden")
-
-    # Collateral coverage
-    if loan_amount > 0:
-        if collateral >= loan_amount:
-            score += 3
-            strengths.append("Fully secured facility with adequate collateral coverage")
-        elif collateral >= 0.5 * loan_amount:
-            score += 2
-            strengths.append("Partial collateral support available")
-        else:
-            risks.append("Insufficient collateral coverage")
-    else:
-        risks.append("Loan amount requires validation")
-
-    # Credit history
-    if default_history in ["none", "", "no", "nil", "n/a"]:
-        score += 2
-        strengths.append("No prior default history observed")
-    else:
-        score -= 2
-        risks.append("Adverse credit history detected")
-
-    # Existing exposure
-    if outstanding <= 0:
-        score += 1
-        strengths.append("No material existing debt exposure recorded")
-    elif outstanding < loan_amount:
-        score += 1
-        strengths.append("Manageable existing debt exposure")
-    else:
-        risks.append("High existing financial obligations")
-
-    if score >= 6:
-        decision = "APPROVE"
-        risk_level = "Low Risk"
-    elif score >= 3:
-        decision = "APPROVE WITH CONDITIONS"
-        risk_level = "Moderate Risk"
-    else:
-        decision = "REJECT"
-        risk_level = "High Risk"
-
-    borrower_summary = (
-        f"{name} is requesting a loan facility to support {purpose}. "
-        f"The borrower currently maintains outstanding obligations of ₦{outstanding:,.0f} "
-        f"and a proposed monthly repayment obligation of ₦{repayment:,.0f}."
-    )
-
-    facility_request = (
-        f"A facility of ₦{loan_amount:,.0f} is requested for a tenor of {tenor} months "
-        f"to finance {purpose}."
-    )
-
-    risk_assessment = (
-        f"The facility is assessed as {risk_level}. The evaluation reflects the borrower’s "
-        f"liquidity position, collateral adequacy, existing exposure profile, and credit history. "
-        f"Collateral coverage stands at ₦{collateral:,.0f} while available liquidity buffer is "
-        f"estimated at ₦{reserve:,.0f}."
-    )
-
-    decision_summary = (
-        f"Based on the overall credit assessment, the facility is recommended for {decision}."
-    )
-
-    if decision == "APPROVE":
-        recommendation = "The facility is recommended for APPROVAL without conditions."
-    elif decision == "APPROVE WITH CONDITIONS":
-        recommendation = (
-            "The facility is recommended for APPROVAL subject to:\n"
-            "• Verification of financial and operating records\n"
-            "• Ongoing monitoring of repayment performance\n"
-            "• Proper perfection of collateral documentation"
-        )
-    else:
-        recommendation = (
-            "The facility is recommended for REJECTION due to weak credit fundamentals "
-            "and an unfavorable risk-return profile."
-        )
-
-    return {
-        "borrower_summary": borrower_summary,
-        "facility_request": facility_request,
-        "risk_assessment": risk_assessment,
-        "decision_summary": decision_summary,
-        "ai_strengths": strengths if strengths else ["No strong factors identified"],
-        "ai_risk_flags": risks if risks else ["No major risks identified"],
-        "ai_recommendation": recommendation
-    }
+bank_result = calculate_bank_grade(app)
 
 # =========================================================
 # FALLBACK MEMO LOGIC
@@ -293,12 +520,41 @@ if has_saved_memo:
         "facility_request": safe_text(app.get("facility_request")),
         "risk_assessment": safe_text(app.get("risk_assessment")),
         "decision_summary": safe_text(app.get("decision_summary")),
-        "ai_strengths": saved_strengths if saved_strengths else ["No strong factors identified"],
-        "ai_risk_flags": saved_risks if saved_risks else ["No major risks identified"],
-        "ai_recommendation": safe_text(app.get("ai_recommendation"))
+        "ai_strengths": saved_strengths if saved_strengths else bank_result["ai_strengths"],
+        "ai_risk_flags": saved_risks if saved_risks else bank_result["ai_risk_flags"],
+        "ai_recommendation": safe_text(app.get("ai_recommendation"), bank_result["ai_recommendation"])
     }
 else:
-    memo = generate_bank_grade_memo(app)
+    memo = {
+        "borrower_summary": bank_result["borrower_summary"],
+        "facility_request": bank_result["facility_request"],
+        "risk_assessment": bank_result["risk_assessment"],
+        "decision_summary": bank_result["decision_summary"],
+        "ai_strengths": bank_result["ai_strengths"],
+        "ai_risk_flags": bank_result["ai_risk_flags"],
+        "ai_recommendation": bank_result["ai_recommendation"]
+    }
+
+silent_update_payload = build_safe_update_payload(app, {
+    "score": bank_result["credit_score"],
+    "decision": bank_result["decision"],
+    "credit_score": bank_result["credit_score"],
+    "risk_grade": bank_result["risk_grade"],
+    "risk_level": bank_result["risk_level"],
+    "dscr": bank_result["dscr"],
+    "borrower_summary": memo["borrower_summary"],
+    "facility_request": memo["facility_request"],
+    "risk_assessment": memo["risk_assessment"],
+    "decision_summary": memo["decision_summary"],
+    "ai_strengths": memo["ai_strengths"],
+    "ai_risk_flags": memo["ai_risk_flags"],
+    "ai_recommendation": memo["ai_recommendation"],
+})
+try:
+    if silent_update_payload:
+        supabase.table("loan_applications").update(silent_update_payload).eq("id", app["id"]).execute()
+except Exception:
+    pass
 
 # =========================================================
 # APPLICATION DETAILS (READ ONLY)
@@ -313,7 +569,7 @@ col1.write(f"**Tenor:** {app.get('tenor')} months")
 
 col2.write(f"**Borrower Type:** {app.get('borrower_type')}")
 col2.write(f"**Loan Purpose:** {app.get('loan_purpose')}")
-col2.write(f"**Score:** {app.get('score')}")
+col2.write(f"**Score:** {bank_result['credit_score']}/100")
 
 st.markdown("---")
 
@@ -336,6 +592,19 @@ st.markdown("## 🏦 Collateral & Buffer")
 st.write(f"**Collateral Type:** {app.get('collateral_type')}")
 st.write(f"**Collateral Value:** {format_money(app.get('collateral_value'))}")
 st.write(f"**Cash Reserve:** {format_money(app.get('cash_reserve'))}")
+
+st.markdown("---")
+
+# =========================================================
+# BANK-GRADE RISK METRICS
+# =========================================================
+st.markdown("## 🏦 Bank-Grade Risk Metrics")
+
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Credit Score", f"{bank_result['credit_score']}/100")
+m2.metric("Risk Grade", bank_result["risk_grade"])
+m3.metric("DSCR", f"{bank_result['dscr']:.2f}x")
+m4.metric("Decision", bank_result["decision"])
 
 st.markdown("---")
 
@@ -430,16 +699,26 @@ with col1:
             "note": decision_note
         })
 
-        update_payload = {
+        update_payload = build_safe_update_payload(app, {
             "workflow_status": "MANAGER_APPROVED",
             "approval_history": updated_history,
-            "manager_notes": manager_notes
-        }
-
-        if "manager_review_by" in app:
-            update_payload["manager_review_by"] = user.id
-        if "manager_review_at" in app:
-            update_payload["manager_review_at"] = str(datetime.now())
+            "manager_notes": manager_notes,
+            "score": bank_result["credit_score"],
+            "decision": bank_result["decision"],
+            "credit_score": bank_result["credit_score"],
+            "risk_grade": bank_result["risk_grade"],
+            "risk_level": bank_result["risk_level"],
+            "dscr": bank_result["dscr"],
+            "borrower_summary": memo["borrower_summary"],
+            "facility_request": memo["facility_request"],
+            "risk_assessment": memo["risk_assessment"],
+            "decision_summary": memo["decision_summary"],
+            "ai_strengths": memo["ai_strengths"],
+            "ai_risk_flags": memo["ai_risk_flags"],
+            "ai_recommendation": memo["ai_recommendation"],
+            "manager_review_by": user.id,
+            "manager_review_at": str(datetime.now())
+        })
 
         supabase.table("loan_applications") \
             .update(update_payload) \
@@ -461,16 +740,26 @@ with col2:
             "note": decision_note
         })
 
-        update_payload = {
+        update_payload = build_safe_update_payload(app, {
             "workflow_status": "MANAGER_REJECTED",
             "approval_history": updated_history,
-            "manager_notes": manager_notes
-        }
-
-        if "manager_review_by" in app:
-            update_payload["manager_review_by"] = user.id
-        if "manager_review_at" in app:
-            update_payload["manager_review_at"] = str(datetime.now())
+            "manager_notes": manager_notes,
+            "score": bank_result["credit_score"],
+            "decision": bank_result["decision"],
+            "credit_score": bank_result["credit_score"],
+            "risk_grade": bank_result["risk_grade"],
+            "risk_level": bank_result["risk_level"],
+            "dscr": bank_result["dscr"],
+            "borrower_summary": memo["borrower_summary"],
+            "facility_request": memo["facility_request"],
+            "risk_assessment": memo["risk_assessment"],
+            "decision_summary": memo["decision_summary"],
+            "ai_strengths": memo["ai_strengths"],
+            "ai_risk_flags": memo["ai_risk_flags"],
+            "ai_recommendation": memo["ai_recommendation"],
+            "manager_review_by": user.id,
+            "manager_review_at": str(datetime.now())
+        })
 
         supabase.table("loan_applications") \
             .update(update_payload) \
