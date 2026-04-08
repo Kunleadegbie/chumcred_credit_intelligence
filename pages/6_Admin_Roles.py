@@ -101,6 +101,13 @@ def sync_missing_institutions(names, existing_records):
     return created
 
 
+def load_applications_for(inst_name: str):
+    try:
+        return supabase.table("loan_applications").select("*").eq("institution", inst_name).order("created_at", desc=True).execute().data or []
+    except Exception:
+        return []
+
+
 users = load_users()
 application_rows = load_application_rows()
 institution_records = load_institutions_from_table()
