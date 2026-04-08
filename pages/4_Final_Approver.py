@@ -134,66 +134,48 @@ st.write(f"**Cash Reserve:** ₦{app.get('cash_reserve', 0):,.0f}")
 st.markdown("---")
 
 # =========================================================
-# AI INSIGHT (CRITICAL FOR FINAL DECISION)
+# CREDIT ASSESSMENT MEMO (FROM DATABASE - STANDARDIZED)
 # =========================================================
-st.markdown("## 🤖 AI Credit Insight")
-
-ai = app
-
 
 st.markdown("## 🧾 Credit Assessment Memo")
 
-st.markdown(
-    f"""
-<div style="
-    border:1px solid #e6e6e6;
-    border-radius:10px;
-    padding:20px;
-    background-color:#fafafa;
-    font-size:15.5px;
-    line-height:1.8;
-    color:#222;
-">
+st.markdown(f"""
+**Borrower Summary**  
+{app.get("borrower_summary", "Not available")}
 
-<b>Borrower Summary</b><br>
-{app.get('client_name')} is a {app.get('borrower_type')} customer applying for credit facilities.
+**Facility Request**  
+{app.get("facility_request", "Not available")}
 
-<br><br>
+**Risk Assessment**  
+{app.get("risk_assessment", "Not available")}
 
-<b>Facility Request</b><br>
-The applicant is seeking a loan of <b>₦{app.get('loan_amount'):,.0f}</b> 
-for <b>{app.get('loan_purpose')}</b> over a tenor of 
-<b>{app.get('tenor')} months</b>.
+**Decision Summary**  
+{app.get("decision_summary", "Not available")}
+""")
 
-<br><br>
-
-<b>Risk Assessment</b><br>
-
-
-<br><br>
-
-<b>Decision Summary</b><br>
-Based on the assessment, the application is recommended for 
-<b>{app.get('decision', app.get('ai_recommendation', 'N/A'))}</b>
-
-</div>
-""",
-    unsafe_allow_html=True
-)
-
-# Strengths
+# ===============================
+# KEY STRENGTHS
+# ===============================
 st.markdown("### ✅ Key Strengths")
-for s in app.get("ai_strengths", []) or []:
-    st.markdown(f"• {s}")
+strengths = app.get("ai_strengths") or []
 
-# Risks
+for s in strengths:
+    st.markdown(f"• {s.replace('•','').strip()}")
+
+# ===============================
+# KEY RISKS
+# ===============================
 st.markdown("### ⚠️ Key Risks")
-for r in app.get("ai_risk_flags", []) or []:
-    st.markdown(f"• {r}")
+risks = app.get("ai_risk_flags") or []
 
-# Recommendation
+for r in risks:
+    st.markdown(f"• {r.replace('•','').strip()}")
+
+# ===============================
+# RECOMMENDATION
+# ===============================
 st.markdown("### 📌 Recommendation")
-st.write(app.get("ai_recommendation"))
+st.markdown(app.get("ai_recommendation", "Not available"))
 
 # =========================================================
 # PRIOR REVIEWS (CHAIN OF DECISION)
