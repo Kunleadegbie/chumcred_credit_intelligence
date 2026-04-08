@@ -155,90 +155,176 @@ st.write(f"**Cash Reserve:** ₦{app.get('cash_reserve', 0):,.0f}")
 st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================================================
-# AI INSIGHT (UPGRADED TO BANK STANDARD)
+# AI INSIGHT (SCORING MODEL - BANK STANDARD)
 # =========================================================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.markdown("## 🤖 AI Credit Insight")
 
-# ===============================
-# BANK-GRADE MEMO GENERATOR
-# ===============================
 def generate_bank_grade_memo(app):
 
-    name = app.get("client_name", "The borrower")
-    amount = app.get("loan_amount", 0)
-    purpose = app.get("loan_purpose", "business operations")
-    tenor = app.get("tenor", "N/A")
+    name = app.get("client_name", "Borrower")
+    loan_amount = app.get("loan_amount", 0)
+    purpose = app.get("loan_purpose", "")
+    tenor = app.get("tenor", 0)
 
     repayment = app.get("monthly_repayment", 0)
+    reserve = app.get("cash_reserve", 0)
     outstanding = app.get("total_outstanding_loans", 0)
     collateral = app.get("collateral_value", 0)
-    reserve = app.get("cash_reserve", 0)
-    default_history = app.get("default_history", "None")
+    default_history = str(app.get("default_history", "")).lower()
 
     # ===============================
-    # RISK LOGIC (MORE PROFESSIONAL)
+    # CREDIT SCORING MODEL
     # ===============================
-    if default_history and str(default_history).lower() != "none":
-        risk_level = "High Risk"
-        decision = "REJECT"
-        reason = "Presence of prior default history raises significant credit concerns."
+    score = 0
+    strengths = []
+    risks = []
 
-    elif repayment > (0.5 * reserve):
-        risk_level = "Moderate Risk"
-        decision = "APPROVE WITH CONDITIONS"
-        reason = "Repayment obligation is relatively high compared to available liquidity buffer."
+    # --- Cash Flow Strength ---
+    if reserve > repayment * 3:
+        score += 3
+        strengths.append("Strong liquidity buffer relative to repayment obligations")
+    elif reserve > repayment:
+        score += 2
+        strengths.append("Moderate liquidity support for repayment")
+    else:
+        risks.append("Weak liquidity position relative to repayment burden")
 
-    elif collateral < (0.5 * amount):
-        risk_level = "Moderate Risk"
+    # --- Collateral Strength ---
+    if collateral >= loan_amount:
+        score += 3
+        strengths.append("Fully secured facility with adequate collateral coverage")
+    elif collateral >= 0.5 * loan_amount:
+        score += 2
+        strengths.append("Partial collateral support available")
+    else:
+        risks.append("Insufficient collateral coverage")
+
+    # --- Credit History ---
+    if default_history in ["none", "", "no"]:
+        score += 2
+        strengths.append("No prior default history observed")
+    else:
+        score -= 2
+        risks.append("Adverse credit history detected")
+
+    # --- Existing Exposure ---
+    if outstanding < loan_amount:
+        score += 1
+        strengths.append("Manageable existing debt exposure")
+    else:
+        risks.append("High existing financial obligations")
+
+    # ===============================
+    # FINAL DECISION
+    # ===============================
+    if score >= 6:
+        decision = "APPROVE"
+        risk_level = "Low Risk"
+
+    elif score >= 3:
         decision = "APPROVE WITH CONDITIONS"
-        reason = "Collateral coverage is insufficient relative to facility size."
+        risk_level = "Moderate Risk"
 
     else:
-        risk_level = "Low Risk"
-        decision = "APPROVE"
-        reason = "Strong financial indicators with adequate collateral and repayment capacity."
+        decision = "REJECT"
+        risk_level = "High Risk"
 
     # ===============================
-    # STRUCTURED OUTPUT
+    # BUILD MEMO
     # ===============================
     memo = {
         "borrower_summary":
-            f"{name} is an SME borrower seeking credit facilities to support {purpose}. "
-            f"The business maintains an existing exposure of ₦{outstanding:,.0f} "
-            f"with a monthly repayment obligation of ₦{repayment:,.0f}.",
+            f"{name} is requesting a loan facility to finance {purpose}. "
+            f"The borrower currently maintains outstanding obligations of ₦{outstanding:,.0f} "
+            f"with a proposed monthly repayment of ₦{repayment:,.0f}.",
 
         "facility_request":
-            f"The applicant requests a facility of ₦{amount:,.0f} for a tenor of {tenor} months, "
-            f"intended to finance {purpose}.",
+            f"A facility of ₦{loan_amount:,.0f} is requested for a tenor of {tenor} months "
+            f"to support {purpose}.",
 
         "risk_assessment":
-            f"The credit risk is assessed as {risk_level}. {reason} "
-            f"Collateral coverage stands at ₦{collateral:,.0f}, "
-            f"while liquidity buffer is estimated at ₦{reserve:,.0f}.",
+            f"The facility is assessed as {risk_level}. "
+            f"The evaluation is based on liquidity position, collateral adequacy, "
+            f"existing exposure, and credit history.",
 
         "decision_summary":
-            f"Based on the above analysis, the application is recommended for {decision}.",
+            f"Based on the overall credit assessment, the facility is recommended for {decision}.",
 
-        "key_strength":
-            f"• Existing business operations with defined purpose\n"
-            f"• Collateral support available\n"
-            f"• Structured repayment profile",
+        "key_strength": "\n".join([f"• {s}" for s in strengths]) if strengths else "• No strong factors identified",
 
-        "key_risk":
-            f"• Exposure to existing financial obligations\n"
-            f"• Sensitivity to liquidity pressure\n"
-            f"• Potential repayment strain under stress conditions",
+        "key_risk": "\n".join([f"• {r}" for r in risks]) if risks else "• No major risks identified",
 
         "recommendation":
-            f"The facility should be {decision}, subject to:\n"
-            f"• Verification of financial records\n"
-            f"• Monitoring of repayment performance\n"
-            f"• Enforcement of credit conditions"
+            (
+                f"The facility is recommended for APPROVAL without conditions."
+                if decision == "APPROVE"
+                else
+                f"The facility is recommended for APPROVAL subject to:\n"
+                f"• Verification of income and financial records\n"
+                f"• Monitoring of repayment performance\n"
+                f"• Proper collateral documentation"
+                if decision == "APPROVE WITH CONDITIONS"
+                else
+                f"The facility is recommended for REJECTION due to weak credit fundamentals."
+            )
     }
 
     return memo
 
+
+# ===============================
+# GENERATE MEMO
+# ===============================
+memo = generate_bank_grade_memo(app)
+
+# ===============================
+# SAVE TO DATABASE
+# ===============================
+try:
+    supabase.table("loan_applications").update({
+        "borrower_summary": memo["borrower_summary"],
+        "facility_request": memo["facility_request"],
+        "risk_assessment": memo["risk_assessment"],
+        "decision_summary": memo["decision_summary"],
+        "ai_strengths": memo["key_strength"].split("\n"),
+        "ai_risk_flags": memo["key_risk"].split("\n"),
+        "ai_recommendation": memo["recommendation"]
+    }).eq("id", app["id"]).execute()
+except:
+    pass
+
+# ===============================
+# DISPLAY MEMO
+# ===============================
+st.markdown("## 🧾 Credit Assessment Memo")
+
+st.markdown(f"""
+**Borrower Summary**  
+{memo["borrower_summary"]}
+
+**Facility Request**  
+{memo["facility_request"]}
+
+**Risk Assessment**  
+{memo["risk_assessment"]}
+
+**Decision Summary**  
+{memo["decision_summary"]}
+""")
+
+st.markdown("### ✅ Key Strengths")
+for s in memo["key_strength"].split("\n"):
+    st.markdown(s)
+
+st.markdown("### ⚠️ Key Risks")
+for r in memo["key_risk"].split("\n"):
+    st.markdown(r)
+
+st.markdown("### 📌 Recommendation")
+st.markdown(memo["recommendation"])
+
+st.markdown('</div>', unsafe_allow_html=True)
 
 # ===============================
 # GENERATE MEMO
@@ -315,6 +401,7 @@ st.markdown("### 📌 Recommendation")
 st.markdown(memo["recommendation"])
 
 st.markdown('</div>', unsafe_allow_html=True)
+
 # =========================================================
 # APPROVAL HISTORY
 # =========================================================
