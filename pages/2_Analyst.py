@@ -3,7 +3,6 @@ from db.supabase_client import supabase
 from workflow.application_service import update_application_status
 from datetime import datetime
 from workflow.sidebar_menu import render_sidebar
-from institution_access import normalize_role, get_display_name, enforce_institution_access, build_actor_entry, render_history, get_stage_actor
 
 # ===============================
 # AUTH CHECK
@@ -35,16 +34,13 @@ else:
 # ===============================
 # EXTRACT ROLE
 # ===============================
-role = normalize_role(profile.get("role"))
+role = (profile.get("role") or "").strip().lower()
 institution = profile.get("institution") or ""
-email = profile.get("email") or getattr(user, "email", "") or ""
-display_name = get_display_name(profile, user)
 
 # ===============================
 # SIDEBAR
 # ===============================
 render_sidebar(role)
-enforce_institution_access(profile, "page")
 
 # ===============================
 # ACCESS CONTROL
@@ -66,6 +62,10 @@ st.markdown("""
 .header-card {background:linear-gradient(135deg,#1f3c88,#3f72af);padding:25px;border-radius:12px;color:white;}
 </style>
 """, unsafe_allow_html=True)
+
+st.title("🔎 Credit Analyst Desk")
+st.caption(f"Institution: {institution or 'Not set'} | User: {display_name} | Email: {email} | Role: {role}")
+st.markdown("---")
 
 
 # (ONLY THE FIXED SECTION — REST OF YOUR FILE REMAINS SAME)
@@ -337,7 +337,16 @@ st.markdown('<div class="card">', unsafe_allow_html=True)
 st.markdown("### 🧾 Approval History")
 
 history = app.get("approval_history") or []
-render_history(history)
+
+if history:
+    for h in history:
+        st.markdown(
+            f"**{h['stage']}** → {h['action']}  \n"
+            f"Note: {h.get('note','')}  \n"
+            f"Time: {h['timestamp']}"
+        )
+else:
+    st.info("No approvals yet")
 
 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -359,7 +368,13 @@ col1, col2 = st.columns(2)
 with col1:
     if st.button("Approve"):
         history = app.get("approval_history") or []
-        history.append(build_actor_entry(profile, user, role, "APPROVED", st.session_state.get("decision_note", "")))
+        history.append({
+            "stage": role.upper(),
+            "action": "APPROVED",
+            "user": user.id,
+            "timestamp": str(datetime.now()),
+            "note": st.session_state.get("decision_note", "")
+        })
 
         supabase.table("loan_applications") \
             .update({
@@ -375,7 +390,13 @@ with col1:
 with col2:
     if st.button("Reject"):
         history = app.get("approval_history") or []
-        history.append(build_actor_entry(profile, user, role, "REJECTED", st.session_state.get("decision_note", "")))
+        history.append({
+            "stage": role.upper(),
+            "action": "REJECTED",
+            "user": user.id,
+            "timestamp": str(datetime.now()),
+            "note": st.session_state.get("decision_note", "")
+        })
 
         supabase.table("loan_applications") \
             .update({
@@ -396,5 +417,5 @@ st.markdown('</div>', unsafe_allow_html=True)
 st.markdown("---")
 st.markdown("## 🧾 Workflow History")
 
-st.write(f"**Initiated By:** {get_stage_actor(history, 'initiator')}")
+st.write(f"**Initiated By:** {app.get('initiated_by')}")
 st.write(f"**Current Status:** {app.get('workflow_status')}")
