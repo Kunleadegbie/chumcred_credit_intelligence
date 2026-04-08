@@ -64,15 +64,24 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+# (ONLY THE FIXED SECTION — REST OF YOUR FILE REMAINS SAME)
+
 # ===============================
 # LOAD APPLICATIONS
 # ===============================
-apps = supabase.table("loan_applications").select("*").execute().data
+response = supabase.table("loan_applications") \
+    .select("*") \
+    .execute()
+
+applications = response.data or []
 
 # ===============================
-# SELECT APPLICATION
+# SELECT APPLICATION (FIXED)
 # ===============================
-app_options = {f"{a['client_name']} - ₦{a['loan_amount']:,.0f}": a["id"] for a in apps}
+app_options = {
+    f"{a.get('client_name','Unknown')} - ₦{a.get('loan_amount',0):,.0f}": a["id"]
+    for a in applications
+}
 
 selected_label = st.selectbox("Select Application", list(app_options.keys()))
 
@@ -89,19 +98,7 @@ app_resp = supabase.table("loan_applications") \
 
 app = app_resp.data
 
-# =========================================================
-# SELECT APPLICATION
-# =========================================================
-app_map = {
-    f"{a['client_name']} | ₦{a['loan_amount']:,.0f} | Score {a['score']}": a
-    for a in applications
-}
-
-selected_label = st.selectbox("Select Application", list(app_map.keys()))
-
-app = app_map[selected_label]
-
-# 🔥 OVERRIDE IF USER JUST TOOK ACTION
+# 🔥 KEEP LAST VIEWED LOGIC (UNCHANGED)
 if "last_viewed_app" in st.session_state:
 
     last_id = st.session_state.last_viewed_app
