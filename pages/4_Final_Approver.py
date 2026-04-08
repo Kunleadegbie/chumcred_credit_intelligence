@@ -134,7 +134,7 @@ st.write(f"**Cash Reserve:** ₦{app.get('cash_reserve', 0):,.0f}")
 st.markdown("---")
 
 # =========================================================
-# FIXED CREDIT ASSESSMENT MEMO (FROM DATABASE - STANDARDIZED)
+# CREDIT ASSESSMENT MEMO (FROM DATABASE - STANDARDIZED)
 # =========================================================
 
 st.markdown("## 🧾 Credit Assessment Memo")
