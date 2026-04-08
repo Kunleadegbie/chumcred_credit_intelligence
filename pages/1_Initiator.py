@@ -1,6 +1,7 @@
 import streamlit as st
 from db.supabase_client import supabase
 from workflow.sidebar_menu import render_sidebar
+from institution_access import normalize_role, get_display_name, enforce_institution_access, build_actor_entry, render_history
 
 from workflow.application_service import create_application
 from ai_layer.ai_engine import run_ai_analysis
@@ -37,14 +38,16 @@ else:
 # ===============================
 # EXTRACT ROLE
 # ===============================
-role = (profile.get("role") or "").strip().lower()
+role = normalize_role(profile.get("role"))
 institution = profile.get("institution") or ""
 email = profile.get("email") or ""
+display_name = get_display_name(profile, user)
 
 # ===============================
 # SIDEBAR
 # ===============================
 render_sidebar(role)
+enforce_institution_access(profile, "initiator page")
 
 # ===============================
 # ACCESS CONTROL HELPER
@@ -53,17 +56,8 @@ def allow(*allowed):
     allowed = [r.lower() for r in allowed]
     return role in allowed or role == "super_admin"
 
-
-def get_known_application_columns():
-    try:
-        rows = supabase.table("loan_applications").select("*").limit(1).execute().data or []
-        if rows:
-            return set(rows[0].keys())
-    except Exception:
-        pass
-    return set()
-
 st.title("📌 Loan Initiation Desk")
+st.caption(f"Institution: {institution or 'Not set'} | User: {display_name} | Email: {email} | Role: {role}")
 
 # =========================================================
 # SECTION 1 — LOAN APPLICATION DETAILS
@@ -347,8 +341,15 @@ if "last_result" in st.session_state:
             "collateral_value": collateral_value,
 
             "workflow_status": "SUBMITTED",
-            "initiated_by": user.id
+            "initiated_by": user.id,
+            "approval_history": [build_actor_entry(profile, user, "initiator", "SUBMITTED", "Application submitted")]
         }
+
+        known_columns = get_known_application_columns()
+        if "initiated_by_email" in known_columns:
+            payload["initiated_by_email"] = email
+        if "initiated_by_name" in known_columns:
+            payload["initiated_by_name"] = display_name
 
         create_application(payload)
         st.success("Submitted to Analyst")
@@ -357,46 +358,113 @@ if "last_result" in st.session_state:
         st.session_state.show_result = True
 
 # =========================================================
-# REJECTED APPLICATIONS
+# APPLICATION FEEDBACK & DECISIONS
 # =========================================================
-st.markdown("## 🔄 Returned Applications")
+st.markdown("## 📂 Application Decisions")
 
-rejected = supabase.table("loan_applications") \
-    .select("*") \
-    .eq("initiated_by", user.id) \
-    .like("workflow_status", "REJECTED%") \
-    .execute().data
-
-for r in rejected:
-    st.warning(f"{r['client_name']} → {r['workflow_status']}")
+all_my_apps = supabase.table("loan_applications")     .select("*")     .eq("initiated_by", user.id)     .order("created_at", desc=True)     .execute().data or []
 
 # =========================================================
-# APPROVED APPLICATIONS (DISBURSEMENT)
+# REJECTED / RETURNED APPLICATIONS (DROPDOWN)
 # =========================================================
-st.markdown("## 💰 Approved Loans")
+st.markdown("### 🔄 Rejected / Returned Applications")
 
-approved = supabase.table("loan_applications") \
-    .select("*") \
-    .eq("initiated_by", user.id) \
-    .eq("workflow_status", "FINAL_APPROVED") \
-    .execute().data
+rejected_statuses = {"ANALYST_REJECTED", "MANAGER_REJECTED", "FINAL_REJECTED"}
+rejected = [r for r in all_my_apps if (r.get("workflow_status") or "") in rejected_statuses]
 
-for r in approved:
-    st.success(f"{r['client_name']} → Approved")
+if not rejected:
+    st.info("No rejected or returned applications yet.")
+else:
+    rejected_map = {
+        f"{r.get('client_name', 'Unknown')} | ₦{float(r.get('loan_amount', 0) or 0):,.0f} | {r.get('workflow_status', 'REJECTED')}": r
+        for r in rejected
+    }
+    rejected_label = st.selectbox(
+        "Select Rejected Application",
+        list(rejected_map.keys()),
+        key="initiator_rejected_dropdown"
+    )
+    rejected_app = rejected_map[rejected_label]
+
+    st.warning(f"{rejected_app.get('client_name')} → {rejected_app.get('workflow_status')}")
+
+    rejection_history = rejected_app.get("approval_history") or []
+    if rejection_history:
+        st.markdown("**Rejection / Feedback Trail**")
+        render_history(rejection_history)
+
+    primary_reason = ""
+    for item in reversed(rejection_history):
+        action = str(item.get("action", "")).upper()
+        if "REJECT" in action:
+            primary_reason = str(item.get("note", "") or "").strip()
+            if primary_reason:
+                break
+
+    if primary_reason:
+        st.markdown(f"**Primary Rejection Reason:** {primary_reason}")
+
+    extra_feedback = []
+    for field_name, label in [
+        ("analyst_notes", "Analyst Notes"),
+        ("manager_notes", "Manager Notes"),
+        ("final_notes", "Final Approval Notes"),
+    ]:
+        value = str(rejected_app.get(field_name) or "").strip()
+        if value:
+            extra_feedback.append((label, value))
+
+    if extra_feedback:
+        st.markdown("**Additional Feedback**")
+        for label, value in extra_feedback:
+            st.markdown(f"**{label}:** {value}")
+
+# =========================================================
+# APPROVED APPLICATIONS (DROPDOWN)
+# =========================================================
+st.markdown("### 💰 Approved Applications")
+
+approved = [r for r in all_my_apps if (r.get("workflow_status") or "") == "FINAL_APPROVED"]
+
+if not approved:
+    st.info("No approved applications available yet.")
+else:
+    approved_map = {
+        f"{r.get('client_name', 'Unknown')} | ₦{float(r.get('loan_amount', 0) or 0):,.0f} | Score {r.get('score', 'N/A')}": r
+        for r in approved
+    }
+    approved_label = st.selectbox(
+        "Select Approved Application",
+        list(approved_map.keys()),
+        key="initiator_approved_dropdown"
+    )
+    approved_app = approved_map[approved_label]
+
+    st.success(f"{approved_app.get('client_name')} → Approved")
+    st.markdown(
+        f"**Score:** {approved_app.get('score', 'N/A')}  \
+"
+        f"**Decision:** {approved_app.get('decision', 'APPROVED')}  \
+"
+        f"**Status:** {approved_app.get('workflow_status')}"
+    )
+
+    approved_history = approved_app.get("approval_history") or []
+    if approved_history:
+        st.markdown("**Approval Trail**")
+        render_history(approved_history)
 
     if st.button(
-        f"🖨️ Generate Memo - {r['client_name']}",
-        key=f"memo_btn_{r['id']}"
+        f"🖨️ Generate Memo - {approved_app.get('client_name')}",
+        key=f"memo_btn_{approved_app.get('id')}"
     ):
-
-        file_path = generate_credit_memo(r)
+        file_path = generate_credit_memo(approved_app)
 
         with open(file_path, "rb") as f:
             st.download_button(
                 label="Download Memo",
                 data=f,
-                file_name=f"{r['client_name']}_credit_memo.pdf",
-                mime="application/pdf"
+                file_name=f"{approved_app.get('client_name')}_credit_memo.pdf",
+                mime="application/pdf",
+                key=f"download_memo_{approved_app.get('id')}"
             )
-
-    
