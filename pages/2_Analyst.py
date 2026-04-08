@@ -146,22 +146,112 @@ st.write(f"**Cash Reserve:** ₦{app.get('cash_reserve', 0):,.0f}")
 st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================================================
-# AI INSIGHT (UNCHANGED STRUCTURE)
+# AI INSIGHT (UPGRADED TO BANK STANDARD)
 # =========================================================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.markdown("## 🤖 AI Credit Insight")
 
-import re
+# ===============================
+# BANK-GRADE MEMO GENERATOR
+# ===============================
+def generate_bank_grade_memo(app):
 
-# ✅ FIX: DEFINE narrative_raw PROPERLY
-narrative_raw = app.get("ai_narrative", "")
+    name = app.get("client_name", "The borrower")
+    amount = app.get("loan_amount", 0)
+    purpose = app.get("loan_purpose", "business operations")
+    tenor = app.get("tenor", "N/A")
 
-# 🔥 CLEANING
-narrative = re.sub(r'\s+', ' ', narrative_raw)
-narrative = narrative.replace("*", "").replace("_", "")
-narrative = narrative.replace("$", "₦")
-narrative = narrative.strip()
+    repayment = app.get("monthly_repayment", 0)
+    outstanding = app.get("total_outstanding_loans", 0)
+    collateral = app.get("collateral_value", 0)
+    reserve = app.get("cash_reserve", 0)
+    default_history = app.get("default_history", "None")
 
+    # ===============================
+    # RISK LOGIC (MORE PROFESSIONAL)
+    # ===============================
+    if default_history and str(default_history).lower() != "none":
+        risk_level = "High Risk"
+        decision = "REJECT"
+        reason = "Presence of prior default history raises significant credit concerns."
+
+    elif repayment > (0.5 * reserve):
+        risk_level = "Moderate Risk"
+        decision = "APPROVE WITH CONDITIONS"
+        reason = "Repayment obligation is relatively high compared to available liquidity buffer."
+
+    elif collateral < (0.5 * amount):
+        risk_level = "Moderate Risk"
+        decision = "APPROVE WITH CONDITIONS"
+        reason = "Collateral coverage is insufficient relative to facility size."
+
+    else:
+        risk_level = "Low Risk"
+        decision = "APPROVE"
+        reason = "Strong financial indicators with adequate collateral and repayment capacity."
+
+    # ===============================
+    # STRUCTURED OUTPUT
+    # ===============================
+    memo = {
+        "borrower_summary":
+            f"{name} is an SME borrower seeking credit facilities to support {purpose}. "
+            f"The business maintains an existing exposure of ₦{outstanding:,.0f} "
+            f"with a monthly repayment obligation of ₦{repayment:,.0f}.",
+
+        "facility_request":
+            f"The applicant requests a facility of ₦{amount:,.0f} for a tenor of {tenor} months, "
+            f"intended to finance {purpose}.",
+
+        "risk_assessment":
+            f"The credit risk is assessed as {risk_level}. {reason} "
+            f"Collateral coverage stands at ₦{collateral:,.0f}, "
+            f"while liquidity buffer is estimated at ₦{reserve:,.0f}.",
+
+        "decision_summary":
+            f"Based on the above analysis, the application is recommended for {decision}.",
+
+        "key_strength":
+            f"• Existing business operations with defined purpose\n"
+            f"• Collateral support available\n"
+            f"• Structured repayment profile",
+
+        "key_risk":
+            f"• Exposure to existing financial obligations\n"
+            f"• Sensitivity to liquidity pressure\n"
+            f"• Potential repayment strain under stress conditions",
+
+        "recommendation":
+            f"The facility should be {decision}, subject to:\n"
+            f"• Verification of financial records\n"
+            f"• Monitoring of repayment performance\n"
+            f"• Enforcement of credit conditions"
+    }
+
+    return memo
+
+
+# ===============================
+# GENERATE MEMO
+# ===============================
+memo = generate_bank_grade_memo(app)
+
+# ===============================
+# SAVE TO DATABASE (CRITICAL FIX)
+# ===============================
+supabase.table("loan_applications").update({
+    "borrower_summary": memo["borrower_summary"],
+    "facility_request": memo["facility_request"],
+    "risk_assessment": memo["risk_assessment"],
+    "decision_summary": memo["decision_summary"],
+    "ai_strengths": memo["key_strength"].split("\n"),
+    "ai_risk_flags": memo["key_risk"].split("\n"),
+    "ai_recommendation": memo["recommendation"]
+}).eq("id", app["id"]).execute()
+
+# ===============================
+# DISPLAY MEMO (BANK STANDARD)
+# ===============================
 st.markdown("## 🧾 Credit Assessment Memo")
 
 st.markdown(
@@ -177,49 +267,45 @@ st.markdown(
 ">
 
 <b>Borrower Summary</b><br>
-{app.get('client_name')} is a {app.get('borrower_type')} customer applying for credit facilities.
+{memo["borrower_summary"]}
 
 <br><br>
 
 <b>Facility Request</b><br>
-The applicant is seeking a loan of <b>₦{app.get('loan_amount'):,.0f}</b> 
-for <b>{app.get('loan_purpose')}</b> over a tenor of 
-<b>{app.get('tenor')} months</b>.
+{memo["facility_request"]}
 
 <br><br>
 
 <b>Risk Assessment</b><br><br>
 <p style="text-align:justify; margin:0;">
-{narrative}
+{memo["risk_assessment"]}
 </p>
 
 <br><br>
 
 <b>Decision Summary</b><br>
-Based on the assessment, the application is recommended for 
-<b>{app.get('decision', app.get('ai_recommendation', 'N/A'))}</b>
+{memo["decision_summary"]}
 
 </div>
 """,
     unsafe_allow_html=True
 )
 
-# Strengths
+# ===============================
+# KEY INSIGHTS (NOW FIXED)
+# ===============================
 st.markdown("### ✅ Key Strengths")
-for s in app.get("ai_strengths", []) or []:
-    st.markdown(f"• {s}")
+for s in memo["key_strength"].split("\n"):
+    st.markdown(s)
 
-# Risks
 st.markdown("### ⚠️ Key Risks")
-for r in app.get("ai_risk_flags", []) or []:
-    st.markdown(f"• {r}")
+for r in memo["key_risk"].split("\n"):
+    st.markdown(r)
 
-# Recommendation
 st.markdown("### 📌 Recommendation")
-st.write(app.get("ai_recommendation"))
+st.markdown(memo["recommendation"])
 
 st.markdown('</div>', unsafe_allow_html=True)
-
 # =========================================================
 # APPROVAL HISTORY
 # =========================================================

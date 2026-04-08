@@ -140,31 +140,6 @@ st.markdown("## 🤖 AI Credit Insight")
 
 ai = app
 
-st.markdown("## 🧾 Credit Memo")
-
-st.markdown(f"""
-<div style="padding:20px;border:1px solid #e6e6e6;border-radius:10px;background:#fafafa;line-height:1.8;">
-
-<b>Borrower Profile</b><br>
-{ai.get("borrower_profile")}<br><br>
-
-<b>Facility Details</b><br>
-{ai.get("facility_details")}<br><br>
-
-<b>Financial Summary</b><br>
-{ai.get("financial_summary")}<br><br>
-
-<b>Risk Assessment</b><br>
-{ai.get("risk_assessment")}<br><br>
-
-<b>Mitigating Factors</b><br>
-{ai.get("mitigants")}<br><br>
-
-<b>Recommendation</b><br>
-<b>{ai.get("recommendation")}</b>
-
-</div>
-""", unsafe_allow_html=True)
 st.markdown("## 🧾 Credit Assessment Memo")
 
 st.markdown(
