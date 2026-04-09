@@ -53,6 +53,87 @@ def get_known_application_columns():
         pass
     return set()
 
+
+def build_professional_ai_fallback(ai_data, score_value, decision_value):
+    borrower_type = ai_data.get("borrower_type", "Borrower")
+    client_name = ai_data.get("client_name", "Borrower")
+    loan_amount = float(ai_data.get("loan_amount", 0) or 0)
+    tenor = ai_data.get("tenor", 0)
+    purpose = ai_data.get("loan_purpose", "working capital")
+    monthly_income = float(ai_data.get("monthly_income", 0) or 0)
+    monthly_expenses = float(ai_data.get("monthly_expenses", 0) or 0)
+    outstanding = float(ai_data.get("total_outstanding_loans", 0) or 0)
+    monthly_repayment = float(ai_data.get("monthly_repayment", 0) or 0)
+    cash_reserve = float(ai_data.get("cash_reserve", 0) or 0)
+    avg_balance = float(ai_data.get("average_balance", 0) or 0)
+    collateral_type = ai_data.get("collateral_type", "None")
+    collateral_value = float(ai_data.get("collateral_value", 0) or 0)
+    default_history = str(ai_data.get("default_history", "No") or "No")
+    location = ai_data.get("location", "N/A")
+
+    strengths = []
+    risks = []
+    mitigants = []
+
+    if monthly_income > 0 and monthly_expenses >= 0:
+        net_position = monthly_income - monthly_expenses
+    else:
+        net_position = 0
+
+    if score_value >= 75:
+        strengths.append("The applicant demonstrates an overall credit profile that falls within the approval range based on the submitted financial position.")
+    elif score_value >= 50:
+        strengths.append("The application shows moderate credit potential, but requires closer validation before a final lending decision is taken.")
+    else:
+        risks.append("The application currently falls below the internal approval comfort range and would require major risk mitigants before reconsideration.")
+
+    if monthly_income > 0:
+        strengths.append(f"Declared monthly income/cash generation of ₦{monthly_income:,.0f} provides a measurable source for repayment assessment.")
+    if monthly_repayment > 0 and cash_reserve >= monthly_repayment:
+        strengths.append("Cash reserve appears capable of providing short-term repayment support in the event of temporary income pressure.")
+    if collateral_value > 0:
+        strengths.append(f"Collateral support of ₦{collateral_value:,.0f} under {collateral_type} provides additional comfort to the proposed facility structure.")
+    if default_history.strip().lower() in ["no", "none", "nil", "n/a", ""]:
+        strengths.append("No prior default history was indicated in the submitted borrower profile.")
+    else:
+        risks.append("Declared adverse repayment/default history introduces elevated behavioral credit risk.")
+    if outstanding > 0:
+        risks.append(f"Existing obligations of ₦{outstanding:,.0f} should be considered in determining the borrower’s final debt service capacity.")
+    if monthly_repayment > 0 and net_position > 0 and net_position < monthly_repayment:
+        risks.append("Net operating/salary position appears tight relative to the proposed monthly repayment burden.")
+    if collateral_value <= 0:
+        risks.append("No meaningful collateral cover was indicated, which weakens recovery comfort in a default scenario.")
+    if avg_balance > 0:
+        strengths.append(f"Average account balance of ₦{avg_balance:,.0f} offers additional visibility into liquidity behavior.")
+    if location:
+        mitigants.append(f"Location risk context recorded as {location}.")
+    if collateral_value > 0:
+        mitigants.append("Collateral perfection and enforceability should be confirmed before drawdown.")
+    mitigants.append("Independent verification of declared income/cash flow should be completed before final approval.")
+    mitigants.append("Repayment performance should be monitored closely during the first repayment cycle.")
+
+    risk_view = "favorable" if score_value >= 75 else "moderate" if score_value >= 50 else "weak"
+    recommendation = (
+        "Approve subject to standard documentation and verification."
+        if decision_value == "APPROVE"
+        else "Refer for enhanced review and supporting validation before approval."
+        if decision_value == "REVIEW"
+        else "Reject in current form pending stronger repayment support and mitigants."
+    )
+
+    return {
+        "ai_strengths": strengths or ["The application contains some positive indicators but requires fuller validation."],
+        "ai_risk_flags": risks or ["No major risk flags were captured from the submitted information."],
+        "ai_recommendation": recommendation,
+        "borrower_profile": f"{client_name} is presented as a {borrower_type} requesting a facility of ₦{loan_amount:,.0f} for {purpose} over {tenor} months.",
+        "facility_details": f"The proposed exposure is ₦{loan_amount:,.0f} for {tenor} months, with stated purpose as {purpose}. Existing obligations and repayment burden should be assessed against verified affordability.",
+        "financial_summary": f"Submitted financial indicators show monthly income/cash generation of ₦{monthly_income:,.0f}, monthly expenses of ₦{monthly_expenses:,.0f}, current obligations of ₦{outstanding:,.0f}, monthly repayment of ₦{monthly_repayment:,.0f}, cash reserve of ₦{cash_reserve:,.0f}, and average balance of ₦{avg_balance:,.0f}.",
+        "risk_assessment": f"Based on the submitted data, the application currently presents a {risk_view} risk outlook with internal score of {score_value}. Final decision quality depends on verification of income quality, leverage position, repayment behavior, and available credit support.",
+        "mitigants": " ".join([f"• {m}" for m in mitigants]),
+        "recommendation": recommendation,
+        "ai_narrative": f"Internal score outcome is {score_value} with preliminary decision of {decision_value}. The case should be judged on verified repayment capacity, outstanding leverage, liquidity support, behavioral history, and collateral comfort."
+    }
+
 # ===============================
 # SIDEBAR
 # ===============================
@@ -250,14 +331,23 @@ if run_btn:
     }
 
     # ✅ RUN AI
-    ai_result = run_ai_analysis(ai_data, score, decision)
+    ai_result = run_ai_analysis(ai_data, score, decision) or {}
+    fallback_ai = build_professional_ai_fallback(ai_data, score, decision)
+
+    merged_ai = dict(fallback_ai)
+    for key, value in (ai_result or {}).items():
+        if key in ["ai_strengths", "ai_risk_flags"]:
+            if value:
+                merged_ai[key] = value
+        else:
+            if value not in [None, "", [], {}]:
+                merged_ai[key] = value
 
     # ✅ STORE RESULT
-
     st.session_state.last_result = {
         "score": score,
         "decision": decision,
-        "ai": ai_result
+        "ai": merged_ai
     }
     
 if "last_result" in st.session_state:
@@ -269,25 +359,16 @@ if "last_result" in st.session_state:
 
     st.markdown("## 🤖 AI Credit Insight")
 
-    strengths = ai.get("ai_strengths") or []
-    risks = ai.get("ai_risk_flags") or []
-    recommendation_text = ai.get("ai_recommendation") or ai.get("recommendation") or "No AI recommendation available."
-
-    if not strengths:
-        strengths = ["No key strengths returned yet."]
-    if not risks:
-        risks = ["No key risks returned yet."]
-
     st.markdown("### ✅ Key Strengths")
-    for s in strengths:
+    for s in (ai.get("ai_strengths") or ["No key strengths returned yet."]):
         st.markdown(f"• {s}")
 
     st.markdown("### ⚠️ Key Risks")
-    for r in risks:
+    for r in (ai.get("ai_risk_flags") or ["No key risks returned yet."]):
         st.markdown(f"• {r}")
 
     st.markdown("### 📌 AI Recommendation")
-    st.write(recommendation_text)
+    st.write(ai.get("ai_recommendation") or ai.get("recommendation") or "No recommendation available.")
 
     st.markdown("### 🧾 Credit Narrative")
 
