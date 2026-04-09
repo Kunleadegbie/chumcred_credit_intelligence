@@ -69,11 +69,7 @@ all_applications = supabase.table("loan_applications") \
     .execute().data or []
 
 allowed_statuses = {"MANAGER_APPROVED", "FINAL_APPROVED", "FINAL_REJECTED"}
-applications = []
-for a in all_applications:
-    status = str(a.get("workflow_status") or "").strip().upper()
-    if status in allowed_statuses:
-        applications.append(a)
+applications = [a for a in all_applications if is_final_queue_candidate(a)]
 
 if not applications:
     st.info("No applications awaiting final approval. Confirm the manager action saved as MANAGER_APPROVED for the same institution.")
@@ -128,6 +124,38 @@ def clean_list(values):
         if s and s.lower() not in ["none", "null", "—"]:
             cleaned.append(s)
     return cleaned
+
+def is_final_queue_candidate(record):
+    status = str(record.get("workflow_status") or "").strip().upper()
+    if status in {"MANAGER_APPROVED", "FINAL_APPROVED", "FINAL_REJECTED"}:
+        return True
+    history = record.get("approval_history") or []
+    for item in reversed(history):
+        stage = str(item.get("stage") or "").strip().upper()
+        action = str(item.get("action") or "").strip().upper()
+        if stage == "MANAGER" and action == "APPROVED":
+            return True
+        if stage in {"FINAL_APPROVER", "FINAL_APPROVAL"} and action in {"APPROVED", "REJECTED"}:
+            return True
+    return False
+
+def build_consistent_final_memo(record, metrics):
+    risk_grade = str(metrics.get("risk_grade") or "C").strip().upper()
+    credit_score = int(metrics.get("credit_score") or record.get("credit_score") or record.get("score") or 0)
+    dscr = float(metrics.get("dscr") or record.get("dscr") or 0)
+    decision = str(record.get("decision") or ("APPROVE" if risk_grade == "A" else "APPROVE WITH CONDITIONS" if risk_grade == "B" else "REJECT")).strip()
+    name = record.get("client_name", "Borrower")
+    purpose = str(record.get("loan_purpose") or "business operations").strip()
+    tenor = int(float(record.get("tenor") or 1))
+    loan_amount = float(record.get("loan_amount") or 0)
+
+    prof = build_professional_final_memo(record)
+    prof["risk_assessment"] = f"The application carries an internal score of {credit_score}/100, risk grade {risk_grade}, DSCR of {dscr:.2f}x, and collateral cover of {metrics.get('collateral_cover', 0):.2f}x. This assessment reflects leverage, repayment pressure, liquidity buffer, and available collateral support."
+    prof["borrower_summary"] = safe_text(record.get("borrower_summary"), f"{name} is presented as a {record.get('borrower_type', 'Borrower')} borrower requesting a facility of ₦{loan_amount:,.0f} for {purpose} over {tenor} months.")
+    prof["facility_request"] = safe_text(record.get("facility_request"), prof["facility_request"])
+    prof["decision_summary"] = f"At final approval stage, the case should be judged against the saved risk grade {risk_grade} and recommended decision of {decision}."
+    prof["ai_recommendation"] = safe_text(record.get("ai_recommendation"), f"Facility recommendation: {decision}.")
+    return prof
 
 def calculate_bank_grade_metrics(record):
     loan_amount = float(record.get("loan_amount", 0) or 0)
@@ -290,6 +318,7 @@ def generate_bank_grade_memo(record):
 # =========================================================
 # FALLBACK MEMO LOGIC
 # =========================================================
+metrics = calculate_bank_grade_metrics(app)
 saved_strengths = clean_list(app.get("ai_strengths"))
 saved_risks = clean_list(app.get("ai_risk_flags"))
 
@@ -304,18 +333,18 @@ has_saved_memo = any([
 ])
 
 if has_saved_memo:
-    prof = build_professional_final_memo(app)
+    prof = build_consistent_final_memo(app, metrics)
     memo = {
         "borrower_summary": safe_text(app.get("borrower_summary"), prof["borrower_summary"]),
         "facility_request": safe_text(app.get("facility_request"), prof["facility_request"]),
-        "risk_assessment": safe_text(app.get("risk_assessment"), prof["risk_assessment"]),
-        "decision_summary": safe_text(app.get("decision_summary"), prof["decision_summary"]),
+        "risk_assessment": prof["risk_assessment"],
+        "decision_summary": prof["decision_summary"],
         "ai_strengths": saved_strengths if saved_strengths else prof["ai_strengths"],
         "ai_risk_flags": saved_risks if saved_risks else prof["ai_risk_flags"],
         "ai_recommendation": safe_text(app.get("ai_recommendation"), prof["ai_recommendation"])
     }
 else:
-    memo = build_professional_final_memo(app)
+    memo = build_consistent_final_memo(app, metrics)
 
 # =========================================================
 # EXECUTIVE SUMMARY VIEW
