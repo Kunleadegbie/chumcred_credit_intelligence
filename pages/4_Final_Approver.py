@@ -158,52 +158,28 @@ def calculate_bank_grade_metrics(record):
     income = float(record.get("monthly_income", 0) or record.get("revenue", 0) or 0)
     expenses = float(record.get("monthly_expenses", 0) or record.get("expenses", 0) or 0)
     available = max(income - expenses, 0)
-    dscr = round(available / monthly_repayment, 2) if monthly_repayment > 0 else 0.0
+
+    computed_dscr = round(available / monthly_repayment, 2) if monthly_repayment > 0 else 0.0
     collateral_cover = round(collateral_value / loan_amount, 2) if loan_amount > 0 else 0.0
-    score = int(float(record.get("credit_score") or record.get("score") or 0))
-    if score >= 80:
-        risk_grade = "A"
-    elif score >= 65:
-        risk_grade = "B"
-    else:
-        risk_grade = "C"
-    return {"credit_score": score, "risk_grade": risk_grade, "dscr": dscr, "collateral_cover": collateral_cover}
-
-
-def get_canonical_metrics(record):
-    metrics = calculate_bank_grade_metrics(record)
 
     stored_score = record.get("credit_score", record.get("score"))
     stored_grade = record.get("risk_grade")
     stored_dscr = record.get("dscr")
-    stored_decision = record.get("decision")
 
-    if stored_score not in [None, "", "None", "null"]:
-        try:
-            metrics["credit_score"] = int(float(stored_score))
-        except Exception:
-            pass
+    score = int(float(stored_score or 0))
+    dscr = round(float(stored_dscr), 2) if stored_dscr not in [None, "", "None", "null"] else computed_dscr
 
     if stored_grade not in [None, "", "None", "null"]:
-        metrics["risk_grade"] = str(stored_grade).strip().upper()
-
-    if stored_dscr not in [None, "", "None", "null"]:
-        try:
-            metrics["dscr"] = round(float(stored_dscr), 2)
-        except Exception:
-            pass
-
-    if stored_decision not in [None, "", "None", "null"]:
-        metrics["decision"] = str(stored_decision).strip()
+        risk_grade = str(stored_grade).strip().upper()
     else:
-        if metrics["risk_grade"] == "A":
-            metrics["decision"] = "APPROVE"
-        elif metrics["risk_grade"] == "B":
-            metrics["decision"] = "APPROVE WITH CONDITIONS"
+        if score >= 80:
+            risk_grade = "A"
+        elif score >= 65:
+            risk_grade = "B"
         else:
-            metrics["decision"] = "REJECT"
+            risk_grade = "C"
 
-    return metrics
+    return {"credit_score": score, "risk_grade": risk_grade, "dscr": dscr, "collateral_cover": collateral_cover}
 
 
 def build_professional_final_memo(record):
@@ -346,7 +322,7 @@ def generate_bank_grade_memo(record):
 # =========================================================
 # FALLBACK MEMO LOGIC
 # =========================================================
-metrics = get_canonical_metrics(app)
+metrics = calculate_bank_grade_metrics(app)
 saved_strengths = clean_list(app.get("ai_strengths"))
 saved_risks = clean_list(app.get("ai_risk_flags"))
 
@@ -511,13 +487,13 @@ with col1:
         supabase.table("loan_applications") \
             .update({
                 "workflow_status": "FINAL_APPROVED",
+                "approval_history": history,
+                "final_notes": final_notes,
                 "score": metrics.get("credit_score", app.get("score")),
                 "credit_score": metrics.get("credit_score", app.get("credit_score")),
                 "risk_grade": metrics.get("risk_grade", app.get("risk_grade")),
                 "dscr": metrics.get("dscr", app.get("dscr")),
-                "decision": metrics.get("decision", app.get("decision")),
-                "approval_history": history,
-                "final_notes": final_notes
+                "decision": app.get("decision")
             }) \
             .eq("id", app["id"]) \
             .execute()
@@ -537,13 +513,13 @@ with col2:
         supabase.table("loan_applications") \
             .update({
                 "workflow_status": "FINAL_REJECTED",
+                "approval_history": history,
+                "final_notes": final_notes,
                 "score": metrics.get("credit_score", app.get("score")),
                 "credit_score": metrics.get("credit_score", app.get("credit_score")),
                 "risk_grade": metrics.get("risk_grade", app.get("risk_grade")),
                 "dscr": metrics.get("dscr", app.get("dscr")),
-                "decision": metrics.get("decision", app.get("decision")),
-                "approval_history": history,
-                "final_notes": final_notes
+                "decision": app.get("decision")
             }) \
             .eq("id", app["id"]) \
             .execute()

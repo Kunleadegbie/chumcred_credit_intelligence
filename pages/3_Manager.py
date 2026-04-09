@@ -154,9 +154,11 @@ def calculate_bank_grade_metrics(record):
     avg_balance = safe_float(record.get("avg_account_balance") or record.get("average_balance"))
     income = safe_float(record.get("monthly_income") or record.get("revenue"))
     expenses = safe_float(record.get("monthly_expenses") or record.get("expenses"))
-    available = max(income - expenses, 0)
+    available = max(income - expenses, 0.0)
+
     dscr = round(available / monthly_repayment, 2) if monthly_repayment > 0 else 0.0
     collateral_cover = round(collateral_value / loan_amount, 2) if loan_amount > 0 else 0.0
+
     score = int(float(record.get("credit_score") or record.get("score") or 0))
     if score >= 80:
         risk_grade = "A"
@@ -164,7 +166,13 @@ def calculate_bank_grade_metrics(record):
         risk_grade = "B"
     else:
         risk_grade = "C"
-    return {"credit_score": score, "risk_grade": risk_grade, "dscr": dscr, "collateral_cover": collateral_cover}
+
+    return {
+        "credit_score": score,
+        "risk_grade": risk_grade,
+        "dscr": dscr,
+        "collateral_cover": collateral_cover,
+    }
 
 
 def get_canonical_metrics(record):
@@ -337,7 +345,6 @@ def generate_bank_grade_memo(record):
 
 saved_strengths = clean_list(app.get("ai_strengths"))
 saved_risks = clean_list(app.get("ai_risk_flags"))
-metrics = get_canonical_metrics(app)
 has_saved_memo = any([
     safe_text(app.get("borrower_summary"), "") != "",
     safe_text(app.get("facility_request"), "") != "",
@@ -348,6 +355,7 @@ has_saved_memo = any([
     safe_text(app.get("ai_recommendation"), "") != ""
 ])
 
+metrics = get_canonical_metrics(app)
 memo = build_consistent_manager_memo(app, metrics)
 
 history = app.get("approval_history") or []
@@ -367,7 +375,15 @@ col1.write(f"**Loan Amount:** {format_money(app.get('loan_amount'))}")
 col1.write(f"**Tenor:** {app.get('tenor')} months")
 col2.write(f"**Borrower Type:** {app.get('borrower_type')}")
 col2.write(f"**Loan Purpose:** {app.get('loan_purpose')}")
-col2.write(f"**Score:** {app.get('score')}")
+col2.write(f"**Score:** {metrics.get('credit_score', app.get('score'))}/100")
+
+st.markdown("---")
+st.markdown("## 🏦 Bank-Grade Risk Metrics")
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Credit Score", f"{metrics.get('credit_score', app.get('score', 0))}/100")
+m2.metric("Risk Grade", metrics.get("risk_grade", "N/A"))
+m3.metric("DSCR", f"{metrics.get('dscr', 0):.2f}x")
+m4.metric("Collateral Cover", f"{metrics.get('collateral_cover', 0):.2f}x")
 
 st.markdown("---")
 st.markdown("## 📊 Financial Summary")
@@ -430,6 +446,8 @@ with col1:
         updated_history.append(build_actor_entry(profile, user, role, "APPROVED", decision_note))
         supabase.table("loan_applications").update({
             "workflow_status": "MANAGER_APPROVED",
+            "approval_history": updated_history,
+            "manager_notes": manager_notes,
             "score": metrics.get("credit_score", app.get("score")),
             "credit_score": metrics.get("credit_score", app.get("credit_score")),
             "risk_grade": metrics.get("risk_grade", app.get("risk_grade")),
@@ -442,8 +460,6 @@ with col1:
             "ai_strengths": memo["ai_strengths"],
             "ai_risk_flags": memo["ai_risk_flags"],
             "ai_recommendation": memo["ai_recommendation"],
-            "approval_history": updated_history,
-            "manager_notes": manager_notes,
         }).eq("id", app["id"]).execute()
         st.session_state.last_viewed_app = app["id"]
         st.success("Approved successfully")
@@ -455,6 +471,8 @@ with col2:
         updated_history.append(build_actor_entry(profile, user, role, "REJECTED", decision_note))
         supabase.table("loan_applications").update({
             "workflow_status": "MANAGER_REJECTED",
+            "approval_history": updated_history,
+            "manager_notes": manager_notes,
             "score": metrics.get("credit_score", app.get("score")),
             "credit_score": metrics.get("credit_score", app.get("credit_score")),
             "risk_grade": metrics.get("risk_grade", app.get("risk_grade")),
@@ -467,8 +485,6 @@ with col2:
             "ai_strengths": memo["ai_strengths"],
             "ai_risk_flags": memo["ai_risk_flags"],
             "ai_recommendation": memo["ai_recommendation"],
-            "approval_history": updated_history,
-            "manager_notes": manager_notes,
         }).eq("id", app["id"]).execute()
         st.session_state.last_viewed_app = app["id"]
         st.success("Rejected successfully")
