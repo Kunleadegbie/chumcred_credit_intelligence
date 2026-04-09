@@ -71,7 +71,7 @@ allowed_statuses = {
 
 applications = [
     a for a in all_applications
-    if (a.get("workflow_status") or "") in allowed_statuses
+    if str(a.get("workflow_status") or "").strip().upper() in allowed_statuses
 ]
 
 if not applications:
@@ -281,7 +281,7 @@ for item in reversed(history):
         existing_decision_note = str(item.get("note", "") or "")
         break
 
-is_pending_manager_action = (app.get("workflow_status") or "") == "ANALYST_APPROVED"
+is_pending_manager_action = str(app.get("workflow_status") or "").strip().upper() == "ANALYST_APPROVED"
 
 st.markdown("## 📄 Application Overview")
 col1, col2 = st.columns(2)

@@ -59,6 +59,30 @@ if not allow("final_approver"):
 st.title("🏛️ Final Credit Authority")
 st.caption(f"Institution: {institution} | User: {display_name} | Email: {email} | Role: {role}")
 
+def is_final_queue_candidate(record):
+    status = str(record.get("workflow_status") or "").strip().upper()
+    if status in {"MANAGER_APPROVED", "FINAL_APPROVED", "FINAL_REJECTED"}:
+        return True
+
+    history = record.get("approval_history") or []
+    latest_manager_approval = False
+    latest_final_action = False
+
+    for item in reversed(history):
+        stage = str(item.get("stage") or "").strip().upper()
+        action = str(item.get("action") or "").strip().upper()
+
+        if not latest_final_action and stage in {"FINAL_APPROVER", "FINAL_APPROVAL"} and action in {"APPROVED", "REJECTED"}:
+            latest_final_action = True
+
+        if stage == "MANAGER":
+            if action == "APPROVED":
+                latest_manager_approval = True
+            break
+
+    return latest_manager_approval or latest_final_action
+
+
 # =========================================================
 # LOAD APPLICATIONS (MANAGER APPROVED + RETAIN REVIEWED)
 # =========================================================
@@ -69,7 +93,7 @@ all_applications = supabase.table("loan_applications") \
     .execute().data or []
 
 allowed_statuses = {"MANAGER_APPROVED", "FINAL_APPROVED", "FINAL_REJECTED"}
-applications = [a for a in all_applications if (a.get("workflow_status") or "") in allowed_statuses]
+applications = [a for a in all_applications if is_final_queue_candidate(a)]
 
 if not applications:
     st.info("No applications awaiting final approval.")
@@ -426,7 +450,7 @@ for item in reversed(history):
         existing_decision_note = str(item.get("note", "") or "")
         break
 
-is_pending_final_action = (app.get("workflow_status") or "") == "MANAGER_APPROVED"
+is_pending_final_action = str(app.get("workflow_status") or "").strip().upper() == "MANAGER_APPROVED"
 
 final_notes = st.text_area("Final Approval Notes", value=existing_final_notes)
 decision_note = st.text_area(
