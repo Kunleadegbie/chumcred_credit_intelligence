@@ -419,7 +419,7 @@ col1, col2 = st.columns(2)
 with col1:
     if st.button("Approve", disabled=not is_pending_analyst_action, key=f"approve_analyst_{app['id']}"):
         updated_history = app.get("approval_history") or []
-        updated_history.append({"stage": role.upper(), "action": "APPROVED", "user": user.id, "timestamp": str(datetime.now()), "note": decision_note})
+        updated_history.append({"stage": role.upper(), "action": "APPROVED", "user": email, "timestamp": str(datetime.now()), "note": decision_note})
         payload = build_safe_update_payload(
             app,
             {
@@ -439,7 +439,7 @@ with col1:
                 "ai_strengths": memo["ai_strengths"],
                 "ai_risk_flags": memo["ai_risk_flags"],
                 "ai_recommendation": memo["ai_recommendation"],
-                "analyst_review_by": user.id,
+                "analyst_review_by": email,
                 "analyst_review_at": str(datetime.now()),
             },
         )
@@ -450,7 +450,7 @@ with col1:
 with col2:
     if st.button("Reject", disabled=not is_pending_analyst_action, key=f"reject_analyst_{app['id']}"):
         updated_history = app.get("approval_history") or []
-        updated_history.append({"stage": role.upper(), "action": "REJECTED", "user": user.id, "timestamp": str(datetime.now()), "note": decision_note})
+        updated_history.append({"stage": role.upper(), "action": "REJECTED", "user": email, "timestamp": str(datetime.now()), "note": decision_note})
         payload = build_safe_update_payload(
             app,
             {
@@ -470,7 +470,7 @@ with col2:
                 "ai_strengths": memo["ai_strengths"],
                 "ai_risk_flags": memo["ai_risk_flags"],
                 "ai_recommendation": memo["ai_recommendation"],
-                "analyst_review_by": user.id,
+                "analyst_review_by": email,
                 "analyst_review_at": str(datetime.now()),
             },
         )

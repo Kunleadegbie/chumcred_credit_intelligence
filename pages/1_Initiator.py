@@ -56,6 +56,20 @@ def allow(*allowed):
     allowed = [r.lower() for r in allowed]
     return role in allowed or role == "super_admin"
 
+
+def history_with_email(items):
+    cleaned = []
+    for item in items or []:
+        row = dict(item)
+        actor_email = str(row.get("actor_email") or row.get("email") or "").strip()
+        actor_user = str(row.get("user") or "").strip()
+        if actor_email:
+            row["user"] = actor_email
+        elif actor_user and "@" in actor_user:
+            row["user"] = actor_user
+        cleaned.append(row)
+    return cleaned
+
 st.title("📌 Loan Initiation Desk")
 st.caption(f"Institution: {institution or 'Not set'} | User: {display_name} | Email: {email} | Role: {role}")
 
@@ -391,7 +405,7 @@ else:
     rejection_history = rejected_app.get("approval_history") or []
     if rejection_history:
         st.markdown("**Rejection / Feedback Trail**")
-        render_history(rejection_history)
+        render_history(history_with_email(rejection_history))
 
     primary_reason = ""
     for item in reversed(rejection_history):
@@ -452,7 +466,7 @@ else:
     approved_history = approved_app.get("approval_history") or []
     if approved_history:
         st.markdown("**Approval Trail**")
-        render_history(approved_history)
+        render_history(history_with_email(approved_history))
 
     if st.button(
         f"🖨️ Generate Memo - {approved_app.get('client_name')}",
