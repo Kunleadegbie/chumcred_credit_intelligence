@@ -43,256 +43,6 @@ institution = profile.get("institution") or ""
 email = profile.get("email") or ""
 display_name = get_display_name(profile, user)
 
-
-def get_known_application_columns():
-    try:
-        rows = supabase.table("loan_applications").select("*").limit(1).execute().data or []
-        if rows:
-            return set(rows[0].keys())
-    except Exception:
-        pass
-    return set()
-
-
-def build_professional_ai_fallback(ai_data, score_value, decision_value):
-    borrower_type = ai_data.get("borrower_type", "Borrower")
-    client_name = ai_data.get("client_name", "Borrower")
-    loan_amount = float(ai_data.get("loan_amount", 0) or 0)
-    tenor = ai_data.get("tenor", 0)
-    purpose = ai_data.get("loan_purpose", "working capital")
-    monthly_income = float(ai_data.get("monthly_income", 0) or 0)
-    monthly_expenses = float(ai_data.get("monthly_expenses", 0) or 0)
-    outstanding = float(ai_data.get("total_outstanding_loans", 0) or 0)
-    monthly_repayment = float(ai_data.get("monthly_repayment", 0) or 0)
-    cash_reserve = float(ai_data.get("cash_reserve", 0) or 0)
-    avg_balance = float(ai_data.get("average_balance", 0) or 0)
-    collateral_type = ai_data.get("collateral_type", "None")
-    collateral_value = float(ai_data.get("collateral_value", 0) or 0)
-    default_history = str(ai_data.get("default_history", "No") or "No")
-    location = ai_data.get("location", "N/A")
-
-    strengths = []
-    risks = []
-    mitigants = []
-
-    if monthly_income > 0 and monthly_expenses >= 0:
-        net_position = monthly_income - monthly_expenses
-    else:
-        net_position = 0
-
-    if score_value >= 75:
-        strengths.append("The applicant demonstrates an overall credit profile that falls within the approval range based on the submitted financial position.")
-    elif score_value >= 50:
-        strengths.append("The application shows moderate credit potential, but requires closer validation before a final lending decision is taken.")
-    else:
-        risks.append("The application currently falls below the internal approval comfort range and would require major risk mitigants before reconsideration.")
-
-    if monthly_income > 0:
-        strengths.append(f"Declared monthly income/cash generation of ₦{monthly_income:,.0f} provides a measurable source for repayment assessment.")
-    if monthly_repayment > 0 and cash_reserve >= monthly_repayment:
-        strengths.append("Cash reserve appears capable of providing short-term repayment support in the event of temporary income pressure.")
-    if collateral_value > 0:
-        strengths.append(f"Collateral support of ₦{collateral_value:,.0f} under {collateral_type} provides additional comfort to the proposed facility structure.")
-    if default_history.strip().lower() in ["no", "none", "nil", "n/a", ""]:
-        strengths.append("No prior default history was indicated in the submitted borrower profile.")
-    else:
-        risks.append("Declared adverse repayment/default history introduces elevated behavioral credit risk.")
-    if outstanding > 0:
-        risks.append(f"Existing obligations of ₦{outstanding:,.0f} should be considered in determining the borrower’s final debt service capacity.")
-    if monthly_repayment > 0 and net_position > 0 and net_position < monthly_repayment:
-        risks.append("Net operating/salary position appears tight relative to the proposed monthly repayment burden.")
-    if collateral_value <= 0:
-        risks.append("No meaningful collateral cover was indicated, which weakens recovery comfort in a default scenario.")
-    if avg_balance > 0:
-        strengths.append(f"Average account balance of ₦{avg_balance:,.0f} offers additional visibility into liquidity behavior.")
-    if location:
-        mitigants.append(f"Location risk context recorded as {location}.")
-    if collateral_value > 0:
-        mitigants.append("Collateral perfection and enforceability should be confirmed before drawdown.")
-    mitigants.append("Independent verification of declared income/cash flow should be completed before final approval.")
-    mitigants.append("Repayment performance should be monitored closely during the first repayment cycle.")
-
-    risk_view = "favorable" if score_value >= 75 else "moderate" if score_value >= 50 else "weak"
-    recommendation = (
-        "Approve subject to standard documentation and verification."
-        if decision_value == "APPROVE"
-        else "Refer for enhanced review and supporting validation before approval."
-        if decision_value == "REVIEW"
-        else "Reject in current form pending stronger repayment support and mitigants."
-    )
-
-    return {
-        "ai_strengths": strengths or ["The application contains some positive indicators but requires fuller validation."],
-        "ai_risk_flags": risks or ["No major risk flags were captured from the submitted information."],
-        "ai_recommendation": recommendation,
-        "borrower_profile": f"{client_name} is presented as a {borrower_type} requesting a facility of ₦{loan_amount:,.0f} for {purpose} over {tenor} months.",
-        "facility_details": f"The proposed exposure is ₦{loan_amount:,.0f} for {tenor} months, with stated purpose as {purpose}. Existing obligations and repayment burden should be assessed against verified affordability.",
-        "financial_summary": f"Submitted financial indicators show monthly income/cash generation of ₦{monthly_income:,.0f}, monthly expenses of ₦{monthly_expenses:,.0f}, current obligations of ₦{outstanding:,.0f}, monthly repayment of ₦{monthly_repayment:,.0f}, cash reserve of ₦{cash_reserve:,.0f}, and average balance of ₦{avg_balance:,.0f}.",
-        "risk_assessment": f"Based on the submitted data, the application currently presents a {risk_view} risk outlook with internal score of {score_value}. Final decision quality depends on verification of income quality, leverage position, repayment behavior, and available credit support.",
-        "mitigants": " ".join([f"• {m}" for m in mitigants]),
-        "recommendation": recommendation,
-        "ai_narrative": f"Internal score outcome is {score_value} with preliminary decision of {decision_value}. The case should be judged on verified repayment capacity, outstanding leverage, liquidity support, behavioral history, and collateral comfort."
-    }
-
-
-def calculate_bank_grade_metrics(ai_data, score_value, decision_value):
-    def safe_float(value, default=0.0):
-        try:
-            if value in [None, "", "None", "null"]:
-                return float(default)
-            return float(value)
-        except Exception:
-            return float(default)
-
-    borrower_type = str(ai_data.get("borrower_type") or "").strip().lower()
-    loan_amount = safe_float(ai_data.get("loan_amount"))
-    tenor = max(int(safe_float(ai_data.get("tenor"), 1) or 1), 1)
-    monthly_income = safe_float(ai_data.get("monthly_income"))
-    revenue = safe_float(ai_data.get("revenue"))
-    bank_inflow_value = safe_float(ai_data.get("bank_inflow") or ai_data.get("inflow"))
-    monthly_expenses = safe_float(ai_data.get("monthly_expenses"))
-    deductions_value = safe_float(ai_data.get("deductions"))
-    daily_sales_value = safe_float(ai_data.get("daily_sales"))
-    avg_balance = safe_float(ai_data.get("average_balance"))
-    cash_reserve_value = safe_float(ai_data.get("cash_reserve"))
-    monthly_repayment_value = safe_float(ai_data.get("monthly_repayment"))
-    outstanding = safe_float(ai_data.get("total_outstanding_loans"))
-    collateral_value = safe_float(ai_data.get("collateral_value"))
-    default_history = str(ai_data.get("default_history") or "").strip().lower()
-    years_value = safe_float(ai_data.get("years"))
-
-    if borrower_type == "salary earner":
-        net_cash_flow = max(monthly_income - deductions_value, 0.0)
-    elif borrower_type == "sme":
-        operating_surplus = revenue - monthly_expenses
-        net_cash_flow = max(operating_surplus, bank_inflow_value - (monthly_expenses * 0.8), 0.0)
-    else:
-        monthly_sales = daily_sales_value * 26 if daily_sales_value > 0 else 0.0
-        net_cash_flow = max(monthly_sales - monthly_expenses, monthly_sales * 0.22, 0.0)
-
-    if net_cash_flow <= 0:
-        net_cash_flow = max((cash_reserve_value * 0.20), (avg_balance * 0.35), (loan_amount / tenor) * 1.10, 0.0)
-
-    dscr = 9.99 if monthly_repayment_value <= 0 else round(net_cash_flow / monthly_repayment_value, 2)
-    collateral_cover = 0.0 if loan_amount <= 0 else round(collateral_value / loan_amount, 2)
-    liquidity_ratio = 9.99 if monthly_repayment_value <= 0 else round((cash_reserve_value + avg_balance) / monthly_repayment_value, 2)
-
-    score = 0
-    if dscr >= 2.00:
-        score += 35
-    elif dscr >= 1.50:
-        score += 30
-    elif dscr >= 1.25:
-        score += 25
-    elif dscr >= 1.00:
-        score += 18
-    elif dscr >= 0.75:
-        score += 10
-    else:
-        score += 3
-
-    if collateral_cover >= 1.20:
-        score += 20
-    elif collateral_cover >= 1.00:
-        score += 18
-    elif collateral_cover >= 0.75:
-        score += 14
-    elif collateral_cover >= 0.50:
-        score += 9
-    elif collateral_cover > 0:
-        score += 5
-
-    if liquidity_ratio >= 6:
-        score += 15
-    elif liquidity_ratio >= 3:
-        score += 12
-    elif liquidity_ratio >= 1.5:
-        score += 9
-    elif liquidity_ratio >= 1.0:
-        score += 6
-    else:
-        score += 2
-
-    if outstanding <= 0:
-        score += 10
-    elif loan_amount > 0 and outstanding <= (0.50 * loan_amount):
-        score += 8
-    elif loan_amount > 0 and outstanding <= loan_amount:
-        score += 6
-    else:
-        score += 2
-
-    if default_history in ["no", "none", "", "nil", "n/a"]:
-        score += 10
-
-    if years_value >= 5:
-        score += 5
-    elif years_value >= 2:
-        score += 4
-    elif years_value >= 1:
-        score += 3
-    else:
-        score += 1
-
-    credit_score = int(max(0, min(round(score), 100)))
-    if credit_score >= 80 and dscr >= 1.25 and default_history in ["no", "none", "", "nil", "n/a"]:
-        risk_grade = "A"
-        decision = "APPROVE"
-    elif credit_score >= 65 and dscr >= 1.00:
-        risk_grade = "B"
-        decision = "APPROVE WITH CONDITIONS"
-    else:
-        risk_grade = "C"
-        decision = "REJECT"
-    return {"credit_score": credit_score, "risk_grade": risk_grade, "dscr": round(dscr,2), "collateral_cover": collateral_cover, "decision": decision}
-
-
-def resolve_institution_logo_path(inst_name: str):
-    import os
-    safe_name = str(inst_name or "").strip().lower().replace("&", "and")
-    candidate_names = []
-    if safe_name:
-        candidate_names.extend([
-            safe_name.replace(" ", "_"),
-            safe_name.replace(" ", "-"),
-            safe_name.replace(" ", ""),
-        ])
-        # institution without suffix variants
-        trimmed = safe_name.replace(" microfinance bank", "").replace(" mfb", "").strip()
-        if trimmed and trimmed not in candidate_names:
-            candidate_names.extend([
-                trimmed.replace(" ", "_"),
-                trimmed.replace(" ", "-"),
-                trimmed.replace(" ", ""),
-            ])
-
-    search_dirs = [
-        os.path.join(os.getcwd(), "assets", "institutions"),
-        os.path.join(os.getcwd(), "assets"),
-    ]
-
-    for base_dir in search_dirs:
-        if not os.path.isdir(base_dir):
-            continue
-        for base_name in candidate_names:
-            for ext in [".png", ".jpg", ".jpeg", ".webp"]:
-                candidate = os.path.join(base_dir, f"{base_name}{ext}")
-                if os.path.exists(candidate):
-                    return candidate
-
-    fallback = os.path.join(os.getcwd(), "assets", "logo.png")
-    if os.path.exists(fallback):
-        return fallback
-
-    # last resort: use any image file in assets/institutions
-    inst_dir = os.path.join(os.getcwd(), "assets", "institutions")
-    if os.path.isdir(inst_dir):
-        for fname in os.listdir(inst_dir):
-            lower = fname.lower()
-            if lower.endswith((".png", ".jpg", ".jpeg", ".webp")):
-                return os.path.join(inst_dir, fname)
-    return ""
-
 # ===============================
 # SIDEBAR
 # ===============================
@@ -478,7 +228,7 @@ if run_btn:
         "loan_purpose": loan_purpose,
         "borrower_type": borrower_type,
 
-        "monthly_income": monthly_income or 0,
+        "monthly_income": (monthly_income if monthly_income is not None else 0) or (revenue if borrower_type == "SME" else 0) or (bank_inflow if borrower_type == "Salary Earner" else inflow) or (daily_sales * 26 if borrower_type == "Retail Business" else 0),
         "monthly_expenses": (deductions if borrower_type == "Salary Earner" else expenses) or 0,
         "deductions": deductions or 0,
         "revenue": revenue or 0,
@@ -499,29 +249,15 @@ if run_btn:
         "collateral_value": collateral_value
     }
 
-    bank_metrics = calculate_bank_grade_metrics(ai_data, score, decision)
-    consistent_score = bank_metrics.get("credit_score", score)
-    consistent_decision = bank_metrics.get("decision", decision)
-
     # ✅ RUN AI
-    ai_result = run_ai_analysis(ai_data, consistent_score, consistent_decision) or {}
-    fallback_ai = build_professional_ai_fallback(ai_data, consistent_score, consistent_decision)
-
-    merged_ai = dict(fallback_ai)
-    for key, value in (ai_result or {}).items():
-        if key in ["ai_strengths", "ai_risk_flags"]:
-            if value:
-                merged_ai[key] = value
-        else:
-            if value not in [None, "", [], {}]:
-                merged_ai[key] = value
+    ai_result = run_ai_analysis(ai_data, score, decision)
 
     # ✅ STORE RESULT
+
     st.session_state.last_result = {
-        "score": consistent_score,
-        "decision": consistent_decision,
-        "bank_metrics": bank_metrics,
-        "ai": merged_ai
+        "score": score,
+        "decision": decision,
+        "ai": ai_result
     }
     
 if "last_result" in st.session_state:
@@ -531,26 +267,18 @@ if "last_result" in st.session_state:
 
     st.success(f"Score: {result['score']} | Decision: {result['decision']}")
 
-    bank_metrics = result.get("bank_metrics", {})
-    st.markdown("## 🏦 Bank-Grade Risk Metrics")
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Credit Score", f"{bank_metrics.get('credit_score', result['score'])}/100")
-    m2.metric("Risk Grade", bank_metrics.get("risk_grade", "N/A"))
-    m3.metric("DSCR", f"{bank_metrics.get('dscr', 0):.2f}x")
-    m4.metric("Collateral Cover", f"{bank_metrics.get('collateral_cover', 0):.2f}x")
-
     st.markdown("## 🤖 AI Credit Insight")
 
     st.markdown("### ✅ Key Strengths")
-    for s in (ai.get("ai_strengths") or ["No key strengths returned yet."]):
+    for s in ai.get("ai_strengths", []):
         st.markdown(f"• {s}")
 
     st.markdown("### ⚠️ Key Risks")
-    for r in (ai.get("ai_risk_flags") or ["No key risks returned yet."]):
+    for r in ai.get("ai_risk_flags", []):
         st.markdown(f"• {r}")
 
     st.markdown("### 📌 AI Recommendation")
-    st.write(ai.get("ai_recommendation") or ai.get("recommendation") or "No recommendation available.")
+    st.write(ai.get("ai_recommendation"))
 
     st.markdown("### 🧾 Credit Narrative")
 
@@ -566,22 +294,22 @@ if "last_result" in st.session_state:
     ">
 
     <b>Borrower Profile</b><br>
-    {ai.get("borrower_profile") or "N/A"}<br><br>
+    {ai.get("borrower_profile")}<br><br>
 
     <b>Facility Details</b><br>
-    {ai.get("facility_details") or "N/A"}<br><br>
+    {ai.get("facility_details")}<br><br>
 
     <b>Financial Summary</b><br>
-    {ai.get("financial_summary") or "N/A"}<br><br>
+    {ai.get("financial_summary")}<br><br>
 
     <b>Risk Assessment</b><br>
-    {ai.get("risk_assessment") or "N/A"}<br><br>
+    {ai.get("risk_assessment")}<br><br>
 
     <b>Mitigating Factors</b><br>
-    {ai.get("mitigants") or "N/A"}<br><br>
+    {ai.get("mitigants")}<br><br>
 
     <b>Recommendation</b><br>
-    <b>{ai.get("recommendation") or ai.get("ai_recommendation") or "N/A"}</b>
+    <b>{ai.get("recommendation")}</b>
 
     </div>
     """, unsafe_allow_html=True)
@@ -628,14 +356,27 @@ if "last_result" in st.session_state:
         }
 
         known_columns = get_known_application_columns()
-        if "credit_score" in known_columns:
-            payload["credit_score"] = result.get("bank_metrics", {}).get("credit_score", result["score"])
-        if "risk_grade" in known_columns:
-            payload["risk_grade"] = result.get("bank_metrics", {}).get("risk_grade")
-        if "dscr" in known_columns:
-            payload["dscr"] = result.get("bank_metrics", {}).get("dscr")
-        if "collateral_cover" in known_columns:
-            payload["collateral_cover"] = result.get("bank_metrics", {}).get("collateral_cover")
+        optional_values = {
+            "monthly_income": (monthly_income if monthly_income is not None else 0) or (revenue if borrower_type == "SME" else 0) or ((bank_inflow if borrower_type == "Salary Earner" else inflow) or 0) or (daily_sales * 26 if borrower_type == "Retail Business" else 0),
+            "monthly_expenses": (deductions if borrower_type == "Salary Earner" else expenses) or 0,
+            "deductions": deductions or 0,
+            "revenue": revenue or 0,
+            "bank_inflow": (bank_inflow if borrower_type == "Salary Earner" else inflow) or 0,
+            "years": years or 0,
+            "daily_sales": daily_sales or 0,
+            "credit_score": result.get("score"),
+            "risk_grade": result.get("bank_metrics", {}).get("risk_grade"),
+            "dscr": result.get("bank_metrics", {}).get("dscr"),
+            "collateral_cover": result.get("bank_metrics", {}).get("collateral_cover"),
+            "borrower_summary": result["ai"].get("borrower_profile"),
+            "facility_request": result["ai"].get("facility_details"),
+            "financial_summary": result["ai"].get("financial_summary"),
+            "risk_assessment": result["ai"].get("risk_assessment"),
+            "decision_summary": result["ai"].get("recommendation"),
+        }
+        for col_name, col_value in optional_values.items():
+            if col_name in known_columns:
+                payload[col_name] = col_value
         if "initiated_by_email" in known_columns:
             payload["initiated_by_email"] = email
         if "initiated_by_name" in known_columns:
@@ -748,10 +489,7 @@ else:
         f"🖨️ Generate Memo - {approved_app.get('client_name')}",
         key=f"memo_btn_{approved_app.get('id')}"
     ):
-        memo_data = dict(approved_app)
-        memo_data["institution_name"] = memo_data.get("institution") or institution
-        memo_data["institution_logo_path"] = resolve_institution_logo_path(memo_data.get("institution_name"))
-        file_path = generate_credit_memo(memo_data)
+        file_path = generate_credit_memo(approved_app)
 
         with open(file_path, "rb") as f:
             st.download_button(

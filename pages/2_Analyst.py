@@ -131,32 +131,6 @@ def get_latest_stage_note(history_items, stage_name):
     return ""
 
 
-def build_consistent_memo(record, bank_result):
-    risk_grade = str(bank_result.get("risk_grade") or "C").strip().upper()
-    risk_level = bank_result.get("risk_level") or (
-        "Low Risk" if risk_grade == "A" else "Moderate Risk" if risk_grade == "B" else "High Risk"
-    )
-    credit_score = int(bank_result.get("credit_score") or bank_result.get("score") or record.get("credit_score") or record.get("score") or 0)
-    dscr = float(bank_result.get("dscr") or record.get("dscr") or 0)
-    decision = str(bank_result.get("decision") or record.get("decision") or "REJECT").strip()
-    name = record.get("client_name", "Borrower")
-    purpose = str(record.get("loan_purpose") or "business operations").strip()
-    tenor = max(int(safe_float(record.get("tenor"), 1) or 1), 1)
-    loan_amount = safe_float(record.get("loan_amount"))
-    strengths = clean_list(record.get("ai_strengths")) or bank_result.get("ai_strengths") or ["No strong factors identified"]
-    risks = clean_list(record.get("ai_risk_flags")) or bank_result.get("ai_risk_flags") or ["No major risks identified"]
-
-    return {
-        "borrower_summary": safe_text(record.get("borrower_summary"), f"{name} is requesting a loan facility for {purpose}."),
-        "facility_request": safe_text(record.get("facility_request"), f"A facility of {format_money(loan_amount)} is requested for {tenor} months."),
-        "risk_assessment": f"The obligor is graded {risk_grade} ({risk_level}) with a credit score of {credit_score}/100 and DSCR of {dscr:.2f}x.",
-        "decision_summary": f"Final recommendation is {decision}.",
-        "ai_strengths": strengths,
-        "ai_risk_flags": risks,
-        "ai_recommendation": safe_text(record.get("ai_recommendation"), f"Facility recommendation: {decision}."),
-    }
-
-
 
 def estimate_monthly_net_cash_flow(record):
     borrower_type = str(record.get("borrower_type") or "").strip().lower()
@@ -345,7 +319,7 @@ allowed_statuses = {
     "FINAL_APPROVED",
     "FINAL_REJECTED",
 }
-applications = [row for row in rows if str(row.get("workflow_status") or "").strip().upper() in allowed_statuses]
+applications = [row for row in rows if (row.get("workflow_status") or "") in allowed_statuses]
 
 if not applications:
     st.info("No applications available for analyst review. If Initiator submitted a request and it is not showing here, confirm both users have the same institution in user_profiles.")
@@ -370,32 +344,22 @@ selected_label = st.selectbox("Select Application", labels, index=default_index)
 selected_id = app_options[selected_label]
 app = supabase.table("loan_applications").select("*").eq("id", selected_id).single().execute().data
 bank_result = calculate_bank_grade(app)
-if app.get("credit_score") is not None:
-    bank_result["credit_score"] = int(float(app.get("credit_score") or app.get("score") or bank_result["credit_score"]))
-    bank_result["score"] = bank_result["credit_score"]
-if app.get("risk_grade"):
-    bank_result["risk_grade"] = app.get("risk_grade")
-if app.get("dscr") not in [None, "", "None", "null"]:
-    try:
-        bank_result["dscr"] = round(float(app.get("dscr")), 2)
-    except Exception:
-        pass
-if app.get("decision"):
-    bank_result["decision"] = app.get("decision")
-if app.get("risk_grade") == "A":
-    bank_result["risk_level"] = "Low Risk"
-elif app.get("risk_grade") == "B":
-    bank_result["risk_level"] = "Moderate Risk"
-elif app.get("risk_grade") == "C":
-    bank_result["risk_level"] = "High Risk"
 history = app.get("approval_history") or []
 existing_analyst_notes = str(app.get("analyst_notes") or "")
 existing_decision_note = get_latest_stage_note(history, role.upper())
-is_pending_analyst_action = (app.get("workflow_status") or "") == "SUBMITTED"
+is_pending_analyst_action = str(app.get("workflow_status") or "").strip().upper() == "SUBMITTED"
 
 saved_strengths = clean_list(app.get("ai_strengths"))
 saved_risks = clean_list(app.get("ai_risk_flags"))
-memo = build_consistent_memo(app, bank_result)
+memo = {
+    "borrower_summary": safe_text(app.get("borrower_summary"), bank_result["borrower_summary"]),
+    "facility_request": safe_text(app.get("facility_request"), bank_result["facility_request"]),
+    "risk_assessment": safe_text(app.get("risk_assessment"), bank_result["risk_assessment"]),
+    "decision_summary": safe_text(app.get("decision_summary"), bank_result["decision_summary"]),
+    "ai_strengths": saved_strengths if saved_strengths else bank_result["ai_strengths"],
+    "ai_risk_flags": saved_risks if saved_risks else bank_result["ai_risk_flags"],
+    "ai_recommendation": safe_text(app.get("ai_recommendation"), bank_result["ai_recommendation"]),
+}
 
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.markdown("### 📄 Application Details")
@@ -468,6 +432,20 @@ with col1:
                 "risk_grade": bank_result["risk_grade"],
                 "risk_level": bank_result["risk_level"],
                 "dscr": bank_result["dscr"],
+                "monthly_income": app.get("monthly_income"),
+                "monthly_expenses": app.get("monthly_expenses"),
+                "deductions": app.get("deductions"),
+                "revenue": app.get("revenue"),
+                "bank_inflow": app.get("bank_inflow"),
+                "daily_sales": app.get("daily_sales"),
+                "financial_summary": safe_text(app.get("financial_summary"), ""),
+                "monthly_income": app.get("monthly_income"),
+                "monthly_expenses": app.get("monthly_expenses"),
+                "deductions": app.get("deductions"),
+                "revenue": app.get("revenue"),
+                "bank_inflow": app.get("bank_inflow"),
+                "daily_sales": app.get("daily_sales"),
+                "financial_summary": safe_text(app.get("financial_summary"), ""),
                 "borrower_summary": memo["borrower_summary"],
                 "facility_request": memo["facility_request"],
                 "risk_assessment": memo["risk_assessment"],
@@ -482,7 +460,6 @@ with col1:
         supabase.table("loan_applications").update(payload).eq("id", app["id"]).execute()
         st.session_state.last_viewed_app = app["id"]
         st.success("Approved successfully")
-        st.rerun()
         st.rerun()
 with col2:
     if st.button("Reject", disabled=not is_pending_analyst_action, key=f"reject_analyst_{app['id']}"):
@@ -514,6 +491,5 @@ with col2:
         supabase.table("loan_applications").update(payload).eq("id", app["id"]).execute()
         st.session_state.last_viewed_app = app["id"]
         st.success("Rejected successfully")
-        st.rerun()
         st.rerun()
 st.markdown('</div>', unsafe_allow_html=True)

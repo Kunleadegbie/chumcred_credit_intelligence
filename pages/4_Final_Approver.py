@@ -59,21 +59,6 @@ if not allow("final_approver"):
 st.title("🏛️ Final Credit Authority")
 st.caption(f"Institution: {institution} | User: {display_name} | Email: {email} | Role: {role}")
 
-def is_final_queue_candidate(record):
-    status = str(record.get("workflow_status") or "").strip().upper()
-    if status in {"MANAGER_APPROVED", "FINAL_APPROVED", "FINAL_REJECTED"}:
-        return True
-    history = record.get("approval_history") or []
-    for item in reversed(history):
-        stage = str(item.get("stage") or "").strip().upper()
-        action = str(item.get("action") or "").strip().upper()
-        if stage == "MANAGER" and action == "APPROVED":
-            return True
-        if stage in {"FINAL_APPROVER", "FINAL_APPROVAL"} and action in {"APPROVED", "REJECTED"}:
-            return True
-    return False
-
-
 # =========================================================
 # LOAD APPLICATIONS (MANAGER APPROVED + RETAIN REVIEWED)
 # =========================================================
@@ -84,14 +69,10 @@ all_applications = supabase.table("loan_applications") \
     .execute().data or []
 
 allowed_statuses = {"MANAGER_APPROVED", "FINAL_APPROVED", "FINAL_REJECTED"}
-applications = []
-for a in all_applications:
-    status = str(a.get("workflow_status") or "").strip().upper()
-    if status in allowed_statuses:
-        applications.append(a)
+applications = [a for a in all_applications if (a.get("workflow_status") or "") in allowed_statuses]
 
 if not applications:
-    st.info("No applications awaiting final approval. Confirm the manager action saved as MANAGER_APPROVED for the same institution.")
+    st.info("No applications awaiting final approval.")
     st.stop()
 
 # =========================================================
@@ -305,6 +286,7 @@ def generate_bank_grade_memo(record):
 # =========================================================
 # FALLBACK MEMO LOGIC
 # =========================================================
+metrics = calculate_bank_grade_metrics(app)
 saved_strengths = clean_list(app.get("ai_strengths"))
 saved_risks = clean_list(app.get("ai_risk_flags"))
 
