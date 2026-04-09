@@ -247,6 +247,13 @@ def calculate_bank_grade_metrics(ai_data, score_value, decision_value):
     return {"credit_score": credit_score, "risk_grade": risk_grade, "dscr": round(dscr,2), "collateral_cover": collateral_cover, "decision": decision}
 
 
+def format_amount_label(value):
+    try:
+        return f"₦{float(value or 0):,.0f}"
+    except Exception:
+        return "₦0"
+
+
 def resolve_institution_logo_path(inst_name: str):
     import os
     safe_name = str(inst_name or "").strip().lower().replace("&", "and")
@@ -655,6 +662,43 @@ st.markdown("## 📂 Application Decisions")
 all_my_apps = supabase.table("loan_applications")     .select("*")     .eq("initiated_by", user.id)     .order("created_at", desc=True)     .execute().data or []
 
 # =========================================================
+# ALL SUBMITTED APPLICATIONS (DROPDOWN)
+# =========================================================
+st.markdown("### 📑 All Submitted Applications")
+
+submitted_statuses = {"SUBMITTED", "ANALYST_APPROVED", "ANALYST_REJECTED", "MANAGER_APPROVED", "MANAGER_REJECTED", "FINAL_APPROVED", "FINAL_REJECTED"}
+submitted_apps = [r for r in all_my_apps if str(r.get("workflow_status") or "").strip().upper() in submitted_statuses]
+
+if not submitted_apps:
+    st.info("No submitted applications available yet.")
+else:
+    submitted_map = {
+        f"{r.get('client_name', 'Unknown')} | {format_amount_label(r.get('loan_amount'))} | {r.get('workflow_status', 'UNKNOWN')}": r
+        for r in submitted_apps
+    }
+    submitted_label = st.selectbox(
+        "Select Submitted Application",
+        list(submitted_map.keys()),
+        key="initiator_submitted_dropdown"
+    )
+    submitted_app = submitted_map[submitted_label]
+
+    st.markdown(
+        f"**Client:** {submitted_app.get('client_name', 'Unknown')}  \
+"
+        f"**Amount:** {format_amount_label(submitted_app.get('loan_amount'))}  \
+"
+        f"**Status:** {submitted_app.get('workflow_status', 'UNKNOWN')}  \
+"
+        f"**Score:** {submitted_app.get('score', 'N/A')}"
+    )
+
+    submitted_history = submitted_app.get("approval_history") or []
+    if submitted_history:
+        st.markdown("**Workflow Trail**")
+        render_history(submitted_history)
+
+# =========================================================
 # REJECTED / RETURNED APPLICATIONS (DROPDOWN)
 # =========================================================
 st.markdown("### 🔄 Rejected / Returned Applications")
@@ -666,7 +710,7 @@ if not rejected:
     st.info("No rejected or returned applications yet.")
 else:
     rejected_map = {
-        f"{r.get('client_name', 'Unknown')} | ₦{float(r.get('loan_amount', 0) or 0):,.0f} | {r.get('workflow_status', 'REJECTED')}": r
+        f"{r.get('client_name', 'Unknown')} | {format_amount_label(r.get('loan_amount'))} | {r.get('workflow_status', 'REJECTED')}": r
         for r in rejected
     }
     rejected_label = st.selectbox(
@@ -720,7 +764,7 @@ if not approved:
     st.info("No approved applications available yet.")
 else:
     approved_map = {
-        f"{r.get('client_name', 'Unknown')} | ₦{float(r.get('loan_amount', 0) or 0):,.0f} | Score {r.get('score', 'N/A')}": r
+        f"{r.get('client_name', 'Unknown')} | {format_amount_label(r.get('loan_amount'))} | Score {r.get('score', 'N/A')}": r
         for r in approved
     }
     approved_label = st.selectbox(
@@ -732,6 +776,8 @@ else:
 
     st.success(f"{approved_app.get('client_name')} → Approved")
     st.markdown(
+        f"**Amount:** {format_amount_label(approved_app.get('loan_amount'))}  \
+"
         f"**Score:** {approved_app.get('score', 'N/A')}  \
 "
         f"**Decision:** {approved_app.get('decision', 'APPROVED')}  \
@@ -750,6 +796,9 @@ else:
     ):
         memo_data = dict(approved_app)
         memo_data["institution_name"] = memo_data.get("institution") or institution
+        memo_data["institution_logo_path"] = resolve_institution_logo_path(memo_data.get("institution_name"))
+        memo_data["institution"] = memo_data.get("institution") or institution
+        memo_data["institution_name"] = memo_data.get("institution_name") or memo_data.get("institution") or institution
         memo_data["institution_logo_path"] = resolve_institution_logo_path(memo_data.get("institution_name"))
         file_path = generate_credit_memo(memo_data)
 

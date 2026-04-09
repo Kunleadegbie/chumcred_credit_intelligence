@@ -48,21 +48,49 @@ def resolve_logo_path(data: dict) -> str | None:
     """
     Logo resolution order:
     1. institution_logo_path in application data
-    2. assets/institutions/<institution_slug>.(png|jpg|jpeg|webp)
-    3. assets/logo.png fallback
+    2. assets/institutions/<institution_slug or variants>.(png|jpg|jpeg|webp)
+    3. assets/<institution_slug or variants>.(png|jpg|jpeg|webp)
+    4. assets/logo.png fallback
     """
     explicit_logo = str(data.get("institution_logo_path") or "").strip()
     if explicit_logo and os.path.exists(explicit_logo):
         return explicit_logo
 
     institution = str(data.get("institution") or data.get("institution_name") or "").strip()
+    candidate_names = []
     if institution:
         slug = clean_filename(institution)
-        asset_dir = os.path.join(os.getcwd(), "assets", "institutions")
-        for ext in ["png", "jpg", "jpeg", "webp"]:
-            candidate = os.path.join(asset_dir, f"{slug}.{ext}")
-            if os.path.exists(candidate):
-                return candidate
+        candidate_names.extend([slug, slug.replace("_microfinance_bank", ""), slug.replace("_mfb", "")])
+        raw = institution.strip().lower().replace("&", "and")
+        trimmed = raw.replace(" microfinance bank", "").replace(" mfb", "").strip()
+        if trimmed:
+            candidate_names.extend([
+                clean_filename(trimmed),
+                trimmed.replace(" ", "_"),
+                trimmed.replace(" ", "-"),
+                trimmed.replace(" ", ""),
+            ])
+
+    seen = set()
+    deduped_names = []
+    for name in candidate_names:
+        if name and name not in seen:
+            seen.add(name)
+            deduped_names.append(name)
+
+    search_dirs = [
+        os.path.join(os.getcwd(), "assets", "institutions"),
+        os.path.join(os.getcwd(), "assets"),
+    ]
+
+    for search_dir in search_dirs:
+        if not os.path.isdir(search_dir):
+            continue
+        for base_name in deduped_names:
+            for ext in ["png", "jpg", "jpeg", "webp"]:
+                candidate = os.path.join(search_dir, f"{base_name}.{ext}")
+                if os.path.exists(candidate):
+                    return candidate
 
     fallback_logo = os.path.join(os.getcwd(), "assets", "logo.png")
     if os.path.exists(fallback_logo):
@@ -171,11 +199,14 @@ def generate_credit_memo(data, filename="credit_memo.pdf"):
 
     borrower_summary = data.get("borrower_summary") or data.get("borrower_profile")
     facility_request = data.get("facility_request") or data.get("facility_details")
+    financial_summary = data.get("financial_summary")
     risk_assessment = data.get("risk_assessment")
     decision_summary = data.get("decision_summary") or data.get("ai_recommendation")
 
     row("Borrower Summary", borrower_summary)
     row("Facility Request", facility_request)
+    if safe_text(financial_summary, ""):
+        row("Financial Summary", financial_summary)
     row("Risk Assessment", risk_assessment)
     row("Decision Summary", decision_summary)
 
