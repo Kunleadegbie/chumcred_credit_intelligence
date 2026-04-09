@@ -429,7 +429,7 @@ for item in reversed(history):
         existing_decision_note = str(item.get("note", "") or "")
         break
 
-is_pending_final_action = (app.get("workflow_status") or "") == "MANAGER_APPROVED"
+is_pending_final_action = str(app.get("workflow_status") or "").strip().upper() == "MANAGER_APPROVED"
 
 final_notes = st.text_area("Final Approval Notes", value=existing_final_notes)
 decision_note = st.text_area(

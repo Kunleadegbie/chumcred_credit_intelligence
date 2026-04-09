@@ -319,7 +319,7 @@ allowed_statuses = {
     "FINAL_APPROVED",
     "FINAL_REJECTED",
 }
-applications = [row for row in rows if (row.get("workflow_status") or "") in allowed_statuses]
+applications = [row for row in rows if str(row.get("workflow_status") or "").strip().upper() in allowed_statuses]
 
 if not applications:
     st.info("No applications available for analyst review. If Initiator submitted a request and it is not showing here, confirm both users have the same institution in user_profiles.")
@@ -344,6 +344,18 @@ selected_label = st.selectbox("Select Application", labels, index=default_index)
 selected_id = app_options[selected_label]
 app = supabase.table("loan_applications").select("*").eq("id", selected_id).single().execute().data
 bank_result = calculate_bank_grade(app)
+if app.get("credit_score") is not None:
+    bank_result["credit_score"] = int(float(app.get("credit_score") or app.get("score") or bank_result["credit_score"]))
+    bank_result["score"] = bank_result["credit_score"]
+if app.get("risk_grade"):
+    bank_result["risk_grade"] = app.get("risk_grade")
+if app.get("dscr") not in [None, "", "None", "null"]:
+    try:
+        bank_result["dscr"] = round(float(app.get("dscr")), 2)
+    except Exception:
+        pass
+if app.get("decision"):
+    bank_result["decision"] = app.get("decision")
 history = app.get("approval_history") or []
 existing_analyst_notes = str(app.get("analyst_notes") or "")
 existing_decision_note = get_latest_stage_note(history, role.upper())
@@ -447,6 +459,7 @@ with col1:
         st.session_state.last_viewed_app = app["id"]
         st.success("Approved successfully")
         st.rerun()
+        st.rerun()
 with col2:
     if st.button("Reject", disabled=not is_pending_analyst_action, key=f"reject_analyst_{app['id']}"):
         updated_history = app.get("approval_history") or []
@@ -477,5 +490,6 @@ with col2:
         supabase.table("loan_applications").update(payload).eq("id", app["id"]).execute()
         st.session_state.last_viewed_app = app["id"]
         st.success("Rejected successfully")
+        st.rerun()
         st.rerun()
 st.markdown('</div>', unsafe_allow_html=True)

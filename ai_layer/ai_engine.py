@@ -7,6 +7,9 @@ def run_ai_analysis(data, score, decision):
 
     income = data.get("monthly_income", 0)
     expenses = data.get("monthly_expenses", 0)
+    deductions = data.get("deductions", 0)
+    if str(borrower).strip().lower() == "salary earner" and (expenses in [0, 0.0, None, "", "None"]):
+        expenses = deductions or 0
 
     collateral = data.get("collateral_type")
     collateral_value = data.get("collateral_value", 0)
@@ -74,7 +77,13 @@ def run_ai_analysis(data, score, decision):
 
         # KEEP OLD FIELDS (DO NOT BREAK YOUR APP)
         "ai_narrative": f"{borrower_profile} {facility_details} {risk_assessment}",
-        "ai_strengths": [],
-        "ai_risk_flags": [],
+        "ai_strengths": [
+            "Income/cash flow information was captured for primary repayment assessment.",
+            "The request includes a defined facility amount, purpose, and tenor for structured review."
+        ],
+        "ai_risk_flags": [
+            "Final credit decision should remain subject to validation of submitted financial figures.",
+            "Existing obligations and repayment burden should be tested against verified affordability."
+        ],
         "ai_recommendation": recommendation
     }

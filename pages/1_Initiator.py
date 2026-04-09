@@ -136,22 +136,115 @@ def build_professional_ai_fallback(ai_data, score_value, decision_value):
 
 
 def calculate_bank_grade_metrics(ai_data, score_value, decision_value):
-    loan_amount = float(ai_data.get("loan_amount", 0) or 0)
-    monthly_repayment = float(ai_data.get("monthly_repayment", 0) or 0)
-    collateral_value = float(ai_data.get("collateral_value", 0) or 0)
-    cash_reserve = float(ai_data.get("cash_reserve", 0) or 0)
-    avg_balance = float(ai_data.get("average_balance", 0) or 0)
-    monthly_income = float(ai_data.get("monthly_income", 0) or 0)
-    monthly_expenses = float(ai_data.get("monthly_expenses", 0) or 0)
-    dscr = round(max((monthly_income - monthly_expenses), 0) / monthly_repayment, 2) if monthly_repayment > 0 else 0.0
-    collateral_cover = round(collateral_value / loan_amount, 2) if loan_amount > 0 else 0.0
-    if score_value >= 80:
+    def safe_float(value, default=0.0):
+        try:
+            if value in [None, "", "None", "null"]:
+                return float(default)
+            return float(value)
+        except Exception:
+            return float(default)
+
+    borrower_type = str(ai_data.get("borrower_type") or "").strip().lower()
+    loan_amount = safe_float(ai_data.get("loan_amount"))
+    tenor = max(int(safe_float(ai_data.get("tenor"), 1) or 1), 1)
+    monthly_income = safe_float(ai_data.get("monthly_income"))
+    revenue = safe_float(ai_data.get("revenue"))
+    bank_inflow_value = safe_float(ai_data.get("bank_inflow") or ai_data.get("inflow"))
+    monthly_expenses = safe_float(ai_data.get("monthly_expenses"))
+    deductions_value = safe_float(ai_data.get("deductions"))
+    daily_sales_value = safe_float(ai_data.get("daily_sales"))
+    avg_balance = safe_float(ai_data.get("average_balance"))
+    cash_reserve_value = safe_float(ai_data.get("cash_reserve"))
+    monthly_repayment_value = safe_float(ai_data.get("monthly_repayment"))
+    outstanding = safe_float(ai_data.get("total_outstanding_loans"))
+    collateral_value = safe_float(ai_data.get("collateral_value"))
+    default_history = str(ai_data.get("default_history") or "").strip().lower()
+    years_value = safe_float(ai_data.get("years"))
+
+    if borrower_type == "salary earner":
+        net_cash_flow = max(monthly_income - deductions_value, 0.0)
+    elif borrower_type == "sme":
+        operating_surplus = revenue - monthly_expenses
+        net_cash_flow = max(operating_surplus, bank_inflow_value - (monthly_expenses * 0.8), 0.0)
+    else:
+        monthly_sales = daily_sales_value * 26 if daily_sales_value > 0 else 0.0
+        net_cash_flow = max(monthly_sales - monthly_expenses, monthly_sales * 0.22, 0.0)
+
+    if net_cash_flow <= 0:
+        net_cash_flow = max((cash_reserve_value * 0.20), (avg_balance * 0.35), (loan_amount / tenor) * 1.10, 0.0)
+
+    dscr = 9.99 if monthly_repayment_value <= 0 else round(net_cash_flow / monthly_repayment_value, 2)
+    collateral_cover = 0.0 if loan_amount <= 0 else round(collateral_value / loan_amount, 2)
+    liquidity_ratio = 9.99 if monthly_repayment_value <= 0 else round((cash_reserve_value + avg_balance) / monthly_repayment_value, 2)
+
+    score = 0
+    if dscr >= 2.00:
+        score += 35
+    elif dscr >= 1.50:
+        score += 30
+    elif dscr >= 1.25:
+        score += 25
+    elif dscr >= 1.00:
+        score += 18
+    elif dscr >= 0.75:
+        score += 10
+    else:
+        score += 3
+
+    if collateral_cover >= 1.20:
+        score += 20
+    elif collateral_cover >= 1.00:
+        score += 18
+    elif collateral_cover >= 0.75:
+        score += 14
+    elif collateral_cover >= 0.50:
+        score += 9
+    elif collateral_cover > 0:
+        score += 5
+
+    if liquidity_ratio >= 6:
+        score += 15
+    elif liquidity_ratio >= 3:
+        score += 12
+    elif liquidity_ratio >= 1.5:
+        score += 9
+    elif liquidity_ratio >= 1.0:
+        score += 6
+    else:
+        score += 2
+
+    if outstanding <= 0:
+        score += 10
+    elif loan_amount > 0 and outstanding <= (0.50 * loan_amount):
+        score += 8
+    elif loan_amount > 0 and outstanding <= loan_amount:
+        score += 6
+    else:
+        score += 2
+
+    if default_history in ["no", "none", "", "nil", "n/a"]:
+        score += 10
+
+    if years_value >= 5:
+        score += 5
+    elif years_value >= 2:
+        score += 4
+    elif years_value >= 1:
+        score += 3
+    else:
+        score += 1
+
+    credit_score = int(max(0, min(round(score), 100)))
+    if credit_score >= 80 and dscr >= 1.25 and default_history in ["no", "none", "", "nil", "n/a"]:
         risk_grade = "A"
-    elif score_value >= 65:
+        decision = "APPROVE"
+    elif credit_score >= 65 and dscr >= 1.00:
         risk_grade = "B"
+        decision = "APPROVE WITH CONDITIONS"
     else:
         risk_grade = "C"
-    return {"credit_score": score_value, "risk_grade": risk_grade, "dscr": dscr, "collateral_cover": collateral_cover, "decision": decision_value}
+        decision = "REJECT"
+    return {"credit_score": credit_score, "risk_grade": risk_grade, "dscr": round(dscr,2), "collateral_cover": collateral_cover, "decision": decision}
 
 
 def resolve_institution_logo_path(inst_name: str):
@@ -267,6 +360,11 @@ st.markdown("## 📊 Financial Information")
 monthly_income = None
 revenue = None
 expenses = 0.0
+bank_inflow = 0.0
+inflow = 0.0
+deductions = 0.0
+years = 0
+daily_sales = 0.0
 
 if borrower_type == "Salary Earner":
 
@@ -381,7 +479,12 @@ if run_btn:
         "borrower_type": borrower_type,
 
         "monthly_income": monthly_income or 0,
-        "monthly_expenses": expenses or 0,
+        "monthly_expenses": (deductions if borrower_type == "Salary Earner" else expenses) or 0,
+        "deductions": deductions or 0,
+        "revenue": revenue or 0,
+        "bank_inflow": (bank_inflow if borrower_type == "Salary Earner" else inflow) or 0,
+        "years": years or 0,
+        "daily_sales": daily_sales or 0,
 
         "total_outstanding_loans": total_outstanding_loans,
         "monthly_repayment": monthly_repayment,
@@ -396,9 +499,13 @@ if run_btn:
         "collateral_value": collateral_value
     }
 
+    bank_metrics = calculate_bank_grade_metrics(ai_data, score, decision)
+    consistent_score = bank_metrics.get("credit_score", score)
+    consistent_decision = bank_metrics.get("decision", decision)
+
     # ✅ RUN AI
-    ai_result = run_ai_analysis(ai_data, score, decision) or {}
-    fallback_ai = build_professional_ai_fallback(ai_data, score, decision)
+    ai_result = run_ai_analysis(ai_data, consistent_score, consistent_decision) or {}
+    fallback_ai = build_professional_ai_fallback(ai_data, consistent_score, consistent_decision)
 
     merged_ai = dict(fallback_ai)
     for key, value in (ai_result or {}).items():
@@ -409,12 +516,10 @@ if run_btn:
             if value not in [None, "", [], {}]:
                 merged_ai[key] = value
 
-    bank_metrics = calculate_bank_grade_metrics(ai_data, score, decision)
-
     # ✅ STORE RESULT
     st.session_state.last_result = {
-        "score": score,
-        "decision": decision,
+        "score": consistent_score,
+        "decision": consistent_decision,
         "bank_metrics": bank_metrics,
         "ai": merged_ai
     }
