@@ -375,7 +375,7 @@ with col2:
 
 st.markdown("---")
 st.markdown("## 🔄 Workflow Trace")
-st.write(f"**Initiated By:** {app.get('initiated_by_email') or app.get('initiated_by')}")
+st.write(f"**Initiated By:** {app.get('initiated_by')}")
 st.write(f"**Analyst:** {get_stage_actor(history, 'analyst')}")
 st.write(f"**Manager:** {get_stage_actor(history, 'manager')}")
 st.write(f"**Current Status:** {app.get('workflow_status')}")
