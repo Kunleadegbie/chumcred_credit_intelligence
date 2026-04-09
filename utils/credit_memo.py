@@ -41,9 +41,9 @@ def clean_filename(text: str) -> str:
 
 def money(value) -> str:
     try:
-        return f"₦{float(value or 0):,.0f}"
+        return f"NGN {float(value or 0):,.0f}"
     except Exception:
-        return "₦0"
+        return "NGN 0"
 
 
 def resolve_logo_path(data: dict) -> str | None:
@@ -285,7 +285,7 @@ def generate_credit_memo(data, filename="credit_memo.pdf"):
 
     narrative = safe_text(data.get("ai_narrative"), "")
     if narrative:
-        narrative = narrative.replace("$", "₦").replace("*", "").replace("_", "").strip()
+        narrative = narrative.replace("$", "NGN ").replace("₦", "NGN ").replace("*", "").replace("_", "").strip()
         content.append(Spacer(1, 6))
         content.append(Paragraph("<b>Risk Narrative:</b>", styles["Normal"]))
         content.append(Spacer(1, 4))
