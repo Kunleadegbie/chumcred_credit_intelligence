@@ -43,6 +43,16 @@ institution = profile.get("institution") or ""
 email = profile.get("email") or ""
 display_name = get_display_name(profile, user)
 
+
+def get_known_application_columns():
+    try:
+        rows = supabase.table("loan_applications").select("*").limit(1).execute().data or []
+        if rows:
+            return set(rows[0].keys())
+    except Exception:
+        pass
+    return set()
+
 # ===============================
 # SIDEBAR
 # ===============================
@@ -55,20 +65,6 @@ enforce_institution_access(profile, "initiator page")
 def allow(*allowed):
     allowed = [r.lower() for r in allowed]
     return role in allowed or role == "super_admin"
-
-
-def history_with_email(items):
-    cleaned = []
-    for item in items or []:
-        row = dict(item)
-        actor_email = str(row.get("actor_email") or row.get("email") or "").strip()
-        actor_user = str(row.get("user") or "").strip()
-        if actor_email:
-            row["user"] = actor_email
-        elif actor_user and "@" in actor_user:
-            row["user"] = actor_user
-        cleaned.append(row)
-    return cleaned
 
 st.title("📌 Loan Initiation Desk")
 st.caption(f"Institution: {institution or 'Not set'} | User: {display_name} | Email: {email} | Role: {role}")
@@ -273,16 +269,25 @@ if "last_result" in st.session_state:
 
     st.markdown("## 🤖 AI Credit Insight")
 
+    strengths = ai.get("ai_strengths") or []
+    risks = ai.get("ai_risk_flags") or []
+    recommendation_text = ai.get("ai_recommendation") or ai.get("recommendation") or "No AI recommendation available."
+
+    if not strengths:
+        strengths = ["No key strengths returned yet."]
+    if not risks:
+        risks = ["No key risks returned yet."]
+
     st.markdown("### ✅ Key Strengths")
-    for s in ai.get("ai_strengths", []):
+    for s in strengths:
         st.markdown(f"• {s}")
 
     st.markdown("### ⚠️ Key Risks")
-    for r in ai.get("ai_risk_flags", []):
+    for r in risks:
         st.markdown(f"• {r}")
 
     st.markdown("### 📌 AI Recommendation")
-    st.write(ai.get("ai_recommendation"))
+    st.write(recommendation_text)
 
     st.markdown("### 🧾 Credit Narrative")
 
@@ -298,22 +303,22 @@ if "last_result" in st.session_state:
     ">
 
     <b>Borrower Profile</b><br>
-    {ai.get("borrower_profile")}<br><br>
+    {ai.get("borrower_profile") or "N/A"}<br><br>
 
     <b>Facility Details</b><br>
-    {ai.get("facility_details")}<br><br>
+    {ai.get("facility_details") or "N/A"}<br><br>
 
     <b>Financial Summary</b><br>
-    {ai.get("financial_summary")}<br><br>
+    {ai.get("financial_summary") or "N/A"}<br><br>
 
     <b>Risk Assessment</b><br>
-    {ai.get("risk_assessment")}<br><br>
+    {ai.get("risk_assessment") or "N/A"}<br><br>
 
     <b>Mitigating Factors</b><br>
-    {ai.get("mitigants")}<br><br>
+    {ai.get("mitigants") or "N/A"}<br><br>
 
     <b>Recommendation</b><br>
-    <b>{ai.get("recommendation")}</b>
+    <b>{ai.get("recommendation") or ai.get("ai_recommendation") or "N/A"}</b>
 
     </div>
     """, unsafe_allow_html=True)
@@ -405,7 +410,7 @@ else:
     rejection_history = rejected_app.get("approval_history") or []
     if rejection_history:
         st.markdown("**Rejection / Feedback Trail**")
-        render_history(history_with_email(rejection_history))
+        render_history(rejection_history)
 
     primary_reason = ""
     for item in reversed(rejection_history):
@@ -466,7 +471,7 @@ else:
     approved_history = approved_app.get("approval_history") or []
     if approved_history:
         st.markdown("**Approval Trail**")
-        render_history(history_with_email(approved_history))
+        render_history(approved_history)
 
     if st.button(
         f"🖨️ Generate Memo - {approved_app.get('client_name')}",
