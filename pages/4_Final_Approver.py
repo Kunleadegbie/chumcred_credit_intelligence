@@ -60,14 +60,16 @@ st.title("🏛️ Final Credit Authority")
 st.caption(f"Institution: {institution} | User: {display_name} | Email: {email} | Role: {role}")
 
 # =========================================================
-# LOAD APPLICATIONS (ONLY MANAGER APPROVED)
+# LOAD APPLICATIONS (MANAGER APPROVED + RETAIN REVIEWED)
 # =========================================================
-applications = supabase.table("loan_applications") \
+all_applications = supabase.table("loan_applications") \
     .select("*") \
     .eq("institution", institution) \
-    .eq("workflow_status", "MANAGER_APPROVED") \
     .order("created_at", desc=True) \
-    .execute().data
+    .execute().data or []
+
+allowed_statuses = {"MANAGER_APPROVED", "FINAL_APPROVED", "FINAL_REJECTED"}
+applications = [a for a in all_applications if (a.get("workflow_status") or "") in allowed_statuses]
 
 if not applications:
     st.info("No applications awaiting final approval.")
@@ -77,11 +79,19 @@ if not applications:
 # SELECT APPLICATION
 # =========================================================
 app_map = {
-    f"{a['client_name']} | ₦{a['loan_amount']:,.0f} | Score {a.get('score', 0)}": a["id"]
+    f"{a['client_name']} | ₦{a['loan_amount']:,.0f} | Score {a.get('score', 0)} | {a.get('workflow_status', 'UNKNOWN')}": a["id"]
     for a in applications
 }
+labels = list(app_map.keys())
+default_index = 0
+last_viewed_app = st.session_state.get("last_viewed_app")
+if last_viewed_app:
+    for idx, label in enumerate(labels):
+        if app_map[label] == last_viewed_app:
+            default_index = idx
+            break
 
-selected_label = st.selectbox("Select Application", list(app_map.keys()))
+selected_label = st.selectbox("Select Application", labels, index=default_index)
 selected_id = app_map[selected_label]
 
 # ALWAYS FETCH FRESH RECORD
@@ -114,6 +124,51 @@ def clean_list(values):
         if s and s.lower() not in ["none", "null", "—"]:
             cleaned.append(s)
     return cleaned
+
+def calculate_bank_grade_metrics(record):
+    loan_amount = float(record.get("loan_amount", 0) or 0)
+    monthly_repayment = float(record.get("monthly_repayment", 0) or 0)
+    collateral_value = float(record.get("collateral_value", 0) or 0)
+    cash_reserve = float(record.get("cash_reserve", 0) or 0)
+    avg_balance = float(record.get("avg_account_balance", 0) or record.get("average_balance", 0) or 0)
+    income = float(record.get("monthly_income", 0) or record.get("revenue", 0) or 0)
+    expenses = float(record.get("monthly_expenses", 0) or record.get("expenses", 0) or 0)
+    available = max(income - expenses, 0)
+    dscr = round(available / monthly_repayment, 2) if monthly_repayment > 0 else 0.0
+    collateral_cover = round(collateral_value / loan_amount, 2) if loan_amount > 0 else 0.0
+    score = int(float(record.get("credit_score") or record.get("score") or 0))
+    if score >= 80:
+        risk_grade = "A"
+    elif score >= 65:
+        risk_grade = "B"
+    else:
+        risk_grade = "C"
+    return {"credit_score": score, "risk_grade": risk_grade, "dscr": dscr, "collateral_cover": collateral_cover}
+
+
+def build_professional_final_memo(record):
+    name = record.get("client_name", "Borrower")
+    borrower_type = record.get("borrower_type", "Borrower")
+    purpose = record.get("loan_purpose", "business operations")
+    loan_amount = float(record.get("loan_amount", 0) or 0)
+    tenor = record.get("tenor", 0)
+    outstanding = float(record.get("total_outstanding_loans", 0) or 0)
+    monthly_repayment = float(record.get("monthly_repayment", 0) or 0)
+    cash_reserve = float(record.get("cash_reserve", 0) or 0)
+    collateral_type = record.get("collateral_type", "None")
+    collateral_value = float(record.get("collateral_value", 0) or 0)
+    metrics = calculate_bank_grade_metrics(record)
+    recommendation = "Approve subject to standard documentation and final verification." if metrics["risk_grade"] in ["A", "B"] else "Reject or return for stronger risk support and verification."
+    return {
+        "borrower_summary": f"{name} is presented as a {borrower_type} borrower requesting a facility of ₦{loan_amount:,.0f} for {purpose} over {tenor} months.",
+        "facility_request": f"The proposed facility request is ₦{loan_amount:,.0f} for a tenor of {tenor} months. Existing obligations and proposed debt service should be viewed against verified repayment capacity.",
+        "risk_assessment": f"The application carries an internal score of {metrics['credit_score']}/100, risk grade {metrics['risk_grade']}, DSCR of {metrics['dscr']:.2f}x, and collateral cover of {metrics['collateral_cover']:.2f}x. This assessment reflects leverage, repayment pressure, liquidity buffer, and available collateral support.",
+        "decision_summary": f"At final approval stage, the case should be judged against verified affordability, existing leverage of ₦{outstanding:,.0f}, monthly repayment burden of ₦{monthly_repayment:,.0f}, cash reserve of ₦{cash_reserve:,.0f}, and collateral support under {collateral_type} valued at ₦{collateral_value:,.0f}.",
+        "ai_strengths": ["The application has progressed through prior approval stages and contains decision-chain context for final review.", f"Collateral support of ₦{collateral_value:,.0f} provides additional comfort where enforceability is confirmed." if collateral_value > 0 else "No strong collateral support was provided."],
+        "ai_risk_flags": [f"Existing obligations of ₦{outstanding:,.0f} should be weighed against the final repayment structure.", "Final approval should be subject to complete document verification and consistency of borrower disclosures."],
+        "ai_recommendation": recommendation
+    }
+
 
 def generate_bank_grade_memo(record):
     name = record.get("client_name", "Borrower")
@@ -245,17 +300,18 @@ has_saved_memo = any([
 ])
 
 if has_saved_memo:
+    prof = build_professional_final_memo(app)
     memo = {
-        "borrower_summary": safe_text(app.get("borrower_summary")),
-        "facility_request": safe_text(app.get("facility_request")),
-        "risk_assessment": safe_text(app.get("risk_assessment")),
-        "decision_summary": safe_text(app.get("decision_summary")),
-        "ai_strengths": saved_strengths if saved_strengths else ["No strong factors identified"],
-        "ai_risk_flags": saved_risks if saved_risks else ["No major risks identified"],
-        "ai_recommendation": safe_text(app.get("ai_recommendation"))
+        "borrower_summary": safe_text(app.get("borrower_summary"), prof["borrower_summary"]),
+        "facility_request": safe_text(app.get("facility_request"), prof["facility_request"]),
+        "risk_assessment": safe_text(app.get("risk_assessment"), prof["risk_assessment"]),
+        "decision_summary": safe_text(app.get("decision_summary"), prof["decision_summary"]),
+        "ai_strengths": saved_strengths if saved_strengths else prof["ai_strengths"],
+        "ai_risk_flags": saved_risks if saved_risks else prof["ai_risk_flags"],
+        "ai_recommendation": safe_text(app.get("ai_recommendation"), prof["ai_recommendation"])
     }
 else:
-    memo = generate_bank_grade_memo(app)
+    memo = build_professional_final_memo(app)
 
 # =========================================================
 # EXECUTIVE SUMMARY VIEW
@@ -271,6 +327,19 @@ col1.write(f"**Tenor:** {app.get('tenor')} months")
 col2.write(f"**Borrower Type:** {app.get('borrower_type')}")
 col2.write(f"**Loan Purpose:** {app.get('loan_purpose')}")
 col2.write(f"**Score:** {app.get('score')}")
+
+st.markdown("---")
+
+# =========================================================
+# BANK-GRADE RISK METRICS
+# =========================================================
+metrics = calculate_bank_grade_metrics(app)
+st.markdown("## 🏦 Bank-Grade Risk Metrics")
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Credit Score", f"{metrics.get('credit_score', app.get('score', 0))}/100")
+m2.metric("Risk Grade", metrics.get("risk_grade", "N/A"))
+m3.metric("DSCR", f"{metrics.get('dscr', 0):.2f}x")
+m4.metric("Collateral Cover", f"{metrics.get('collateral_cover', 0):.2f}x")
 
 st.markdown("---")
 
@@ -348,16 +417,30 @@ render_history(history)
 # =========================================================
 st.markdown("## 🏁 Final Decision")
 
-final_notes = st.text_area("Final Approval Notes")
+existing_final_notes = str(app.get("final_notes") or "")
+existing_decision_note = ""
+history = app.get("approval_history") or []
+for item in reversed(history):
+    if str(item.get("stage", "")).upper() == role.upper():
+        existing_decision_note = str(item.get("note", "") or "")
+        break
+
+is_pending_final_action = (app.get("workflow_status") or "") == "MANAGER_APPROVED"
+
+final_notes = st.text_area("Final Approval Notes", value=existing_final_notes)
 decision_note = st.text_area(
     "Approval / Rejection Note",
+    value=existing_decision_note,
     key="final_note"
 )
+
+if not is_pending_final_action:
+    st.info("This application has already been reviewed at final approval stage. Saved data is shown for reference.")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    if st.button("Approve"):
+    if st.button("Approve", disabled=not is_pending_final_action):
         history = app.get("approval_history") or []
         approval_entry = build_actor_entry(profile, user, role, "APPROVED", decision_note)
         if isinstance(approval_entry, dict):
@@ -378,7 +461,7 @@ with col1:
         st.rerun()
 
 with col2:
-    if st.button("Reject"):
+    if st.button("Reject", disabled=not is_pending_final_action):
         history = app.get("approval_history") or []
         rejection_entry = build_actor_entry(profile, user, role, "REJECTED", decision_note)
         if isinstance(rejection_entry, dict):

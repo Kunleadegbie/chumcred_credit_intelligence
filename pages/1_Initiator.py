@@ -134,6 +134,37 @@ def build_professional_ai_fallback(ai_data, score_value, decision_value):
         "ai_narrative": f"Internal score outcome is {score_value} with preliminary decision of {decision_value}. The case should be judged on verified repayment capacity, outstanding leverage, liquidity support, behavioral history, and collateral comfort."
     }
 
+
+def calculate_bank_grade_metrics(ai_data, score_value, decision_value):
+    loan_amount = float(ai_data.get("loan_amount", 0) or 0)
+    monthly_repayment = float(ai_data.get("monthly_repayment", 0) or 0)
+    collateral_value = float(ai_data.get("collateral_value", 0) or 0)
+    cash_reserve = float(ai_data.get("cash_reserve", 0) or 0)
+    avg_balance = float(ai_data.get("average_balance", 0) or 0)
+    monthly_income = float(ai_data.get("monthly_income", 0) or 0)
+    monthly_expenses = float(ai_data.get("monthly_expenses", 0) or 0)
+    dscr = round(max((monthly_income - monthly_expenses), 0) / monthly_repayment, 2) if monthly_repayment > 0 else 0.0
+    collateral_cover = round(collateral_value / loan_amount, 2) if loan_amount > 0 else 0.0
+    if score_value >= 80:
+        risk_grade = "A"
+    elif score_value >= 65:
+        risk_grade = "B"
+    else:
+        risk_grade = "C"
+    return {"credit_score": score_value, "risk_grade": risk_grade, "dscr": dscr, "collateral_cover": collateral_cover, "decision": decision_value}
+
+
+def resolve_institution_logo_path(inst_name: str):
+    import os
+    safe_name = str(inst_name or "").strip().lower().replace(" ", "_")
+    if safe_name:
+        for ext in [".png", ".jpg", ".jpeg", ".webp"]:
+            candidate = os.path.join(os.getcwd(), "assets", "institutions", f"{safe_name}{ext}")
+            if os.path.exists(candidate):
+                return candidate
+    fallback = os.path.join(os.getcwd(), "assets", "logo.png")
+    return fallback if os.path.exists(fallback) else ""
+
 # ===============================
 # SIDEBAR
 # ===============================
@@ -343,10 +374,13 @@ if run_btn:
             if value not in [None, "", [], {}]:
                 merged_ai[key] = value
 
+    bank_metrics = calculate_bank_grade_metrics(ai_data, score, decision)
+
     # ✅ STORE RESULT
     st.session_state.last_result = {
         "score": score,
         "decision": decision,
+        "bank_metrics": bank_metrics,
         "ai": merged_ai
     }
     
@@ -356,6 +390,14 @@ if "last_result" in st.session_state:
     ai = result["ai"]
 
     st.success(f"Score: {result['score']} | Decision: {result['decision']}")
+
+    bank_metrics = result.get("bank_metrics", {})
+    st.markdown("## 🏦 Bank-Grade Risk Metrics")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Credit Score", f"{bank_metrics.get('credit_score', result['score'])}/100")
+    m2.metric("Risk Grade", bank_metrics.get("risk_grade", "N/A"))
+    m3.metric("DSCR", f"{bank_metrics.get('dscr', 0):.2f}x")
+    m4.metric("Collateral Cover", f"{bank_metrics.get('collateral_cover', 0):.2f}x")
 
     st.markdown("## 🤖 AI Credit Insight")
 
@@ -446,6 +488,14 @@ if "last_result" in st.session_state:
         }
 
         known_columns = get_known_application_columns()
+        if "credit_score" in known_columns:
+            payload["credit_score"] = result.get("bank_metrics", {}).get("credit_score", result["score"])
+        if "risk_grade" in known_columns:
+            payload["risk_grade"] = result.get("bank_metrics", {}).get("risk_grade")
+        if "dscr" in known_columns:
+            payload["dscr"] = result.get("bank_metrics", {}).get("dscr")
+        if "collateral_cover" in known_columns:
+            payload["collateral_cover"] = result.get("bank_metrics", {}).get("collateral_cover")
         if "initiated_by_email" in known_columns:
             payload["initiated_by_email"] = email
         if "initiated_by_name" in known_columns:
@@ -558,7 +608,10 @@ else:
         f"🖨️ Generate Memo - {approved_app.get('client_name')}",
         key=f"memo_btn_{approved_app.get('id')}"
     ):
-        file_path = generate_credit_memo(approved_app)
+        memo_data = dict(approved_app)
+        memo_data["institution_name"] = memo_data.get("institution") or institution
+        memo_data["institution_logo_path"] = resolve_institution_logo_path(memo_data.get("institution_name"))
+        file_path = generate_credit_memo(memo_data)
 
         with open(file_path, "rb") as f:
             st.download_button(
