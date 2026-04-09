@@ -138,6 +138,35 @@ def clean_list(values):
     return cleaned
 
 
+def calculate_bank_grade_metrics(record):
+    def safe_float(value, default=0.0):
+        try:
+            if value in [None, "", "None", "null"]:
+                return float(default)
+            return float(value)
+        except Exception:
+            return float(default)
+
+    loan_amount = safe_float(record.get("loan_amount"))
+    monthly_repayment = safe_float(record.get("monthly_repayment"))
+    collateral_value = safe_float(record.get("collateral_value"))
+    cash_reserve = safe_float(record.get("cash_reserve"))
+    avg_balance = safe_float(record.get("avg_account_balance") or record.get("average_balance"))
+    income = safe_float(record.get("monthly_income") or record.get("revenue"))
+    expenses = safe_float(record.get("monthly_expenses") or record.get("expenses"))
+    available = max(income - expenses, 0)
+    dscr = round(available / monthly_repayment, 2) if monthly_repayment > 0 else 0.0
+    collateral_cover = round(collateral_value / loan_amount, 2) if loan_amount > 0 else 0.0
+    score = int(float(record.get("credit_score") or record.get("score") or 0))
+    if score >= 80:
+        risk_grade = "A"
+    elif score >= 65:
+        risk_grade = "B"
+    else:
+        risk_grade = "C"
+    return {"credit_score": score, "risk_grade": risk_grade, "dscr": dscr, "collateral_cover": collateral_cover}
+
+
 def get_canonical_metrics(record):
     metrics = calculate_bank_grade_metrics(record)
 

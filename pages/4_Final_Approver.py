@@ -171,7 +171,7 @@ def calculate_bank_grade_metrics(record):
 
 
 def get_canonical_metrics(record):
-    metrics = get_canonical_metrics(record)
+    metrics = calculate_bank_grade_metrics(record)
 
     stored_score = record.get("credit_score", record.get("score"))
     stored_grade = record.get("risk_grade")
