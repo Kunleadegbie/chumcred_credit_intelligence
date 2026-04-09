@@ -164,6 +164,49 @@ def estimate_monthly_net_cash_flow(record):
 
 
 
+def get_canonical_bank_result(record):
+    bank_result = calculate_bank_grade(record)
+
+    stored_score = record.get("credit_score", record.get("score"))
+    stored_grade = record.get("risk_grade")
+    stored_dscr = record.get("dscr")
+    stored_decision = record.get("decision")
+
+    if stored_score not in [None, "", "None", "null"]:
+        try:
+            canonical_score = int(float(stored_score))
+            bank_result["credit_score"] = canonical_score
+            bank_result["score"] = canonical_score
+        except Exception:
+            pass
+
+    if stored_grade not in [None, "", "None", "null"]:
+        bank_result["risk_grade"] = str(stored_grade).strip().upper()
+        if bank_result["risk_grade"] == "A":
+            bank_result["risk_level"] = "Low Risk"
+        elif bank_result["risk_grade"] == "B":
+            bank_result["risk_level"] = "Moderate Risk"
+        else:
+            bank_result["risk_level"] = "High Risk"
+
+    if stored_dscr not in [None, "", "None", "null"]:
+        try:
+            bank_result["dscr"] = round(float(stored_dscr), 2)
+        except Exception:
+            pass
+
+    if stored_decision not in [None, "", "None", "null"]:
+        bank_result["decision"] = str(stored_decision).strip()
+
+    bank_result["risk_assessment"] = (
+        f"The obligor is graded {bank_result['risk_grade']} ({bank_result['risk_level']}) "
+        f"with a credit score of {bank_result['credit_score']}/100 and DSCR of {bank_result['dscr']:.2f}x."
+    )
+    bank_result["decision_summary"] = f"Final recommendation is {bank_result['decision']}."
+    bank_result["ai_recommendation"] = f"Facility recommendation: {bank_result['decision']}."
+    return bank_result
+
+
 def calculate_bank_grade(record):
     name = record.get("client_name", "Borrower")
     borrower_type = str(record.get("borrower_type") or "Borrower").strip()
@@ -343,7 +386,7 @@ if last_id:
 selected_label = st.selectbox("Select Application", labels, index=default_index)
 selected_id = app_options[selected_label]
 app = supabase.table("loan_applications").select("*").eq("id", selected_id).single().execute().data
-bank_result = calculate_bank_grade(app)
+bank_result = get_canonical_bank_result(app)
 history = app.get("approval_history") or []
 existing_analyst_notes = str(app.get("analyst_notes") or "")
 existing_decision_note = get_latest_stage_note(history, role.upper())
@@ -424,6 +467,12 @@ with col1:
             app,
             {
                 "workflow_status": "ANALYST_APPROVED",
+                "score": bank_result["credit_score"],
+                "credit_score": bank_result["credit_score"],
+                "risk_grade": bank_result["risk_grade"],
+                "risk_level": bank_result["risk_level"],
+                "dscr": bank_result["dscr"],
+                "decision": bank_result["decision"],
                 "approval_history": updated_history,
                 "analyst_notes": analyst_notes,
                 "score": bank_result["credit_score"],
@@ -469,6 +518,12 @@ with col2:
             app,
             {
                 "workflow_status": "ANALYST_REJECTED",
+                "score": bank_result["credit_score"],
+                "credit_score": bank_result["credit_score"],
+                "risk_grade": bank_result["risk_grade"],
+                "risk_level": bank_result["risk_level"],
+                "dscr": bank_result["dscr"],
+                "decision": bank_result["decision"],
                 "approval_history": updated_history,
                 "analyst_notes": analyst_notes,
                 "score": bank_result["credit_score"],
@@ -493,3 +548,4 @@ with col2:
         st.success("Rejected successfully")
         st.rerun()
 st.markdown('</div>', unsafe_allow_html=True)
+s

@@ -170,6 +170,42 @@ def calculate_bank_grade_metrics(record):
     return {"credit_score": score, "risk_grade": risk_grade, "dscr": dscr, "collateral_cover": collateral_cover}
 
 
+def get_canonical_metrics(record):
+    metrics = get_canonical_metrics(record)
+
+    stored_score = record.get("credit_score", record.get("score"))
+    stored_grade = record.get("risk_grade")
+    stored_dscr = record.get("dscr")
+    stored_decision = record.get("decision")
+
+    if stored_score not in [None, "", "None", "null"]:
+        try:
+            metrics["credit_score"] = int(float(stored_score))
+        except Exception:
+            pass
+
+    if stored_grade not in [None, "", "None", "null"]:
+        metrics["risk_grade"] = str(stored_grade).strip().upper()
+
+    if stored_dscr not in [None, "", "None", "null"]:
+        try:
+            metrics["dscr"] = round(float(stored_dscr), 2)
+        except Exception:
+            pass
+
+    if stored_decision not in [None, "", "None", "null"]:
+        metrics["decision"] = str(stored_decision).strip()
+    else:
+        if metrics["risk_grade"] == "A":
+            metrics["decision"] = "APPROVE"
+        elif metrics["risk_grade"] == "B":
+            metrics["decision"] = "APPROVE WITH CONDITIONS"
+        else:
+            metrics["decision"] = "REJECT"
+
+    return metrics
+
+
 def build_professional_final_memo(record):
     name = record.get("client_name", "Borrower")
     borrower_type = record.get("borrower_type", "Borrower")
@@ -310,7 +346,7 @@ def generate_bank_grade_memo(record):
 # =========================================================
 # FALLBACK MEMO LOGIC
 # =========================================================
-metrics = calculate_bank_grade_metrics(app)
+metrics = get_canonical_metrics(app)
 saved_strengths = clean_list(app.get("ai_strengths"))
 saved_risks = clean_list(app.get("ai_risk_flags"))
 
@@ -475,6 +511,11 @@ with col1:
         supabase.table("loan_applications") \
             .update({
                 "workflow_status": "FINAL_APPROVED",
+                "score": metrics.get("credit_score", app.get("score")),
+                "credit_score": metrics.get("credit_score", app.get("credit_score")),
+                "risk_grade": metrics.get("risk_grade", app.get("risk_grade")),
+                "dscr": metrics.get("dscr", app.get("dscr")),
+                "decision": metrics.get("decision", app.get("decision")),
                 "approval_history": history,
                 "final_notes": final_notes
             }) \
@@ -496,6 +537,11 @@ with col2:
         supabase.table("loan_applications") \
             .update({
                 "workflow_status": "FINAL_REJECTED",
+                "score": metrics.get("credit_score", app.get("score")),
+                "credit_score": metrics.get("credit_score", app.get("credit_score")),
+                "risk_grade": metrics.get("risk_grade", app.get("risk_grade")),
+                "dscr": metrics.get("dscr", app.get("dscr")),
+                "decision": metrics.get("decision", app.get("decision")),
                 "approval_history": history,
                 "final_notes": final_notes
             }) \
