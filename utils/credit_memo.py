@@ -101,6 +101,15 @@ def resolve_logo_path(data: dict) -> str | None:
     return None
 
 
+
+
+def normalize_currency_text(value):
+    text = safe_text(value, "")
+    if text == "":
+        return text
+    return text.replace("₦", "NGN ").replace("$", "NGN ")
+
+
 def get_memo_title(data: dict) -> str:
     institution = str(data.get("institution") or data.get("institution_name") or "").strip()
     if institution:
@@ -260,19 +269,19 @@ def generate_credit_memo(data, filename="credit_memo.pdf"):
     risk_assessment = data.get("risk_assessment")
     decision_summary = data.get("decision_summary") or data.get("ai_recommendation")
 
-    row("Borrower Summary", borrower_summary)
-    row("Facility Request", facility_request)
+    row("Borrower Summary", normalize_currency_text(borrower_summary))
+    row("Facility Request", normalize_currency_text(facility_request))
     if safe_text(financial_summary, ""):
-        row("Financial Summary", financial_summary)
-    row("Risk Assessment", risk_assessment)
-    row("Decision Summary", decision_summary)
+        row("Financial Summary", normalize_currency_text(financial_summary))
+    row("Risk Assessment", normalize_currency_text(risk_assessment))
+    row("Decision Summary", normalize_currency_text(decision_summary))
 
     strengths = data.get("ai_strengths") or []
     if strengths:
         content.append(Spacer(1, 6))
         content.append(Paragraph("<b>Key Strengths:</b>", styles["Normal"]))
         for item in strengths:
-            content.append(Paragraph(f"• {safe_text(item)}", styles["Normal"]))
+            content.append(Paragraph(f"• {normalize_currency_text(item)}", styles["Normal"]))
         content.append(Spacer(1, 4))
 
     risks = data.get("ai_risk_flags") or []
@@ -280,7 +289,7 @@ def generate_credit_memo(data, filename="credit_memo.pdf"):
         content.append(Spacer(1, 6))
         content.append(Paragraph("<b>Key Risks:</b>", styles["Normal"]))
         for item in risks:
-            content.append(Paragraph(f"• {safe_text(item)}", styles["Normal"]))
+            content.append(Paragraph(f"• {normalize_currency_text(item)}", styles["Normal"]))
         content.append(Spacer(1, 4))
 
     narrative = safe_text(data.get("ai_narrative"), "")
