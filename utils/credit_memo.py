@@ -112,21 +112,42 @@ def get_memo_title(data: dict) -> str:
 
 def register_unicode_font() -> str:
     """
-    Register a Unicode-capable font so ₦ and other symbols render correctly in PDF.
-    Returns the font name to use in paragraph styles.
+    Register a Unicode-capable font family so ₦ and other symbols render correctly in PDF,
+    including bold text fragments used inside Paragraph tags.
+    Returns the base font name to use in paragraph styles.
     """
-    candidates = [
+    regular_candidates = [
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
     ]
-    for path in candidates:
-        if os.path.exists(path):
-            try:
-                pdfmetrics.registerFont(TTFont("MemoUnicode", path))
-                return "MemoUnicode"
-            except Exception:
-                continue
+    bold_candidates = [
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+    ]
+
+    regular_path = next((p for p in regular_candidates if os.path.exists(p)), None)
+    bold_path = next((p for p in bold_candidates if os.path.exists(p)), None)
+
+    if regular_path:
+        try:
+            pdfmetrics.registerFont(TTFont("MemoUnicode", regular_path))
+            if bold_path:
+                pdfmetrics.registerFont(TTFont("MemoUnicode-Bold", bold_path))
+                pdfmetrics.registerFontFamily(
+                    "MemoUnicode",
+                    normal="MemoUnicode",
+                    bold="MemoUnicode-Bold",
+                    italic="MemoUnicode",
+                    boldItalic="MemoUnicode-Bold",
+                )
+            return "MemoUnicode"
+        except Exception:
+            pass
+
     return "Helvetica"
 
 
@@ -141,11 +162,15 @@ def generate_credit_memo(data, filename="credit_memo.pdf"):
     styles["Normal"].fontName = font_name
     styles["Title"].fontName = font_name
     styles["Heading2"].fontName = font_name
+    styles["Normal"].boldFontName = f"{font_name}-Bold" if font_name != "Helvetica" else "Helvetica-Bold"
+    styles["Title"].boldFontName = f"{font_name}-Bold" if font_name != "Helvetica" else "Helvetica-Bold"
+    styles["Heading2"].boldFontName = f"{font_name}-Bold" if font_name != "Helvetica" else "Helvetica-Bold"
 
     title_style = ParagraphStyle(
         "MemoTitle",
         parent=styles["Title"],
         fontName=font_name,
+        boldFontName=f"{font_name}-Bold" if font_name != "Helvetica" else "Helvetica-Bold",
         textColor=colors.HexColor("#1f3c88"),
         fontSize=18,
         leading=22,
@@ -156,6 +181,7 @@ def generate_credit_memo(data, filename="credit_memo.pdf"):
         "SectionHeader",
         parent=styles["Heading2"],
         fontName=font_name,
+        boldFontName=f"{font_name}-Bold" if font_name != "Helvetica" else "Helvetica-Bold",
         textColor=colors.HexColor("#1f3c88"),
         fontSize=13,
         leading=15,
