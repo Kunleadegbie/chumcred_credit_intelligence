@@ -35,7 +35,7 @@ render_sidebar(role)
 # ===============================
 # ACCESS CONTROL
 # ===============================
-if role not in ["manager", "institution_admin", "super_admin"]:
+if role not in ["manager", "final_approver", "institution_admin", "super_admin"]:
     st.error("Access denied")
     st.stop()
 st.title("📊 Portfolio Analytics Dashboard")

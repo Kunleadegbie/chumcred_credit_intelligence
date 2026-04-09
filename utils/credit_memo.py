@@ -3,6 +3,8 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import inch
 from reportlab.lib import colors
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 import os
 import re
 
@@ -106,16 +108,44 @@ def get_memo_title(data: dict) -> str:
     return "CREDIT MEMO"
 
 
+
+
+def register_unicode_font() -> str:
+    """
+    Register a Unicode-capable font so ₦ and other symbols render correctly in PDF.
+    Returns the font name to use in paragraph styles.
+    """
+    candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                pdfmetrics.registerFont(TTFont("MemoUnicode", path))
+                return "MemoUnicode"
+            except Exception:
+                continue
+    return "Helvetica"
+
+
 # ===============================
 # MAIN PDF GENERATOR
 # ===============================
 def generate_credit_memo(data, filename="credit_memo.pdf"):
     doc = SimpleDocTemplate(filename, pagesize=A4, topMargin=36, bottomMargin=36)
     styles = getSampleStyleSheet()
+    font_name = register_unicode_font()
+
+    styles["Normal"].fontName = font_name
+    styles["Title"].fontName = font_name
+    styles["Heading2"].fontName = font_name
 
     title_style = ParagraphStyle(
         "MemoTitle",
         parent=styles["Title"],
+        fontName=font_name,
         textColor=colors.HexColor("#1f3c88"),
         fontSize=18,
         leading=22,
@@ -125,6 +155,7 @@ def generate_credit_memo(data, filename="credit_memo.pdf"):
     section_style = ParagraphStyle(
         "SectionHeader",
         parent=styles["Heading2"],
+        fontName=font_name,
         textColor=colors.HexColor("#1f3c88"),
         fontSize=13,
         leading=15,
