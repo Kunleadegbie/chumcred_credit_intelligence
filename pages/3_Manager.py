@@ -138,6 +138,27 @@ def clean_list(values):
     return cleaned
 
 
+def calculate_bank_grade_metrics(record):
+    loan_amount = float(record.get("loan_amount", 0) or 0)
+    monthly_repayment = float(record.get("monthly_repayment", 0) or 0)
+    collateral_value = float(record.get("collateral_value", 0) or 0)
+    cash_reserve = float(record.get("cash_reserve", 0) or 0)
+    avg_balance = float(record.get("avg_account_balance", 0) or record.get("average_balance", 0) or 0)
+    income = float(record.get("monthly_income", 0) or record.get("revenue", 0) or 0)
+    expenses = float(record.get("monthly_expenses", 0) or record.get("expenses", 0) or 0)
+    available = max(income - expenses, 0)
+    dscr = round(available / monthly_repayment, 2) if monthly_repayment > 0 else 0.0
+    collateral_cover = round(collateral_value / loan_amount, 2) if loan_amount > 0 else 0.0
+    score = int(float(record.get("credit_score") or record.get("score") or 0))
+    if score >= 80:
+        risk_grade = "A"
+    elif score >= 65:
+        risk_grade = "B"
+    else:
+        risk_grade = "C"
+    return {"credit_score": score, "risk_grade": risk_grade, "dscr": dscr, "collateral_cover": collateral_cover}
+
+
 def generate_bank_grade_memo(record):
     name = record.get("client_name", "Borrower")
     loan_amount = float(record.get("loan_amount") or 0)
@@ -291,6 +312,15 @@ col1.write(f"**Tenor:** {app.get('tenor')} months")
 col2.write(f"**Borrower Type:** {app.get('borrower_type')}")
 col2.write(f"**Loan Purpose:** {app.get('loan_purpose')}")
 col2.write(f"**Score:** {app.get('score')}")
+
+st.markdown("---")
+st.markdown("## 🏦 Bank-Grade Risk Metrics")
+metrics = calculate_bank_grade_metrics(app)
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Credit Score", f"{metrics.get('credit_score', app.get('score', 0))}/100")
+m2.metric("Risk Grade", metrics.get("risk_grade", "N/A"))
+m3.metric("DSCR", f"{metrics.get('dscr', 0):.2f}x")
+m4.metric("Collateral Cover", f"{metrics.get('collateral_cover', 0):.2f}x")
 
 st.markdown("---")
 st.markdown("## 📊 Financial Summary")

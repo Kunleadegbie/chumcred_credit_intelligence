@@ -156,14 +156,49 @@ def calculate_bank_grade_metrics(ai_data, score_value, decision_value):
 
 def resolve_institution_logo_path(inst_name: str):
     import os
-    safe_name = str(inst_name or "").strip().lower().replace(" ", "_")
+    safe_name = str(inst_name or "").strip().lower().replace("&", "and")
+    candidate_names = []
     if safe_name:
-        for ext in [".png", ".jpg", ".jpeg", ".webp"]:
-            candidate = os.path.join(os.getcwd(), "assets", "institutions", f"{safe_name}{ext}")
-            if os.path.exists(candidate):
-                return candidate
+        candidate_names.extend([
+            safe_name.replace(" ", "_"),
+            safe_name.replace(" ", "-"),
+            safe_name.replace(" ", ""),
+        ])
+        # institution without suffix variants
+        trimmed = safe_name.replace(" microfinance bank", "").replace(" mfb", "").strip()
+        if trimmed and trimmed not in candidate_names:
+            candidate_names.extend([
+                trimmed.replace(" ", "_"),
+                trimmed.replace(" ", "-"),
+                trimmed.replace(" ", ""),
+            ])
+
+    search_dirs = [
+        os.path.join(os.getcwd(), "assets", "institutions"),
+        os.path.join(os.getcwd(), "assets"),
+    ]
+
+    for base_dir in search_dirs:
+        if not os.path.isdir(base_dir):
+            continue
+        for base_name in candidate_names:
+            for ext in [".png", ".jpg", ".jpeg", ".webp"]:
+                candidate = os.path.join(base_dir, f"{base_name}{ext}")
+                if os.path.exists(candidate):
+                    return candidate
+
     fallback = os.path.join(os.getcwd(), "assets", "logo.png")
-    return fallback if os.path.exists(fallback) else ""
+    if os.path.exists(fallback):
+        return fallback
+
+    # last resort: use any image file in assets/institutions
+    inst_dir = os.path.join(os.getcwd(), "assets", "institutions")
+    if os.path.isdir(inst_dir):
+        for fname in os.listdir(inst_dir):
+            lower = fname.lower()
+            if lower.endswith((".png", ".jpg", ".jpeg", ".webp")):
+                return os.path.join(inst_dir, fname)
+    return ""
 
 # ===============================
 # SIDEBAR

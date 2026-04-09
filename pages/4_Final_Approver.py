@@ -69,10 +69,14 @@ all_applications = supabase.table("loan_applications") \
     .execute().data or []
 
 allowed_statuses = {"MANAGER_APPROVED", "FINAL_APPROVED", "FINAL_REJECTED"}
-applications = [a for a in all_applications if (a.get("workflow_status") or "") in allowed_statuses]
+applications = []
+for a in all_applications:
+    status = str(a.get("workflow_status") or "").strip().upper()
+    if status in allowed_statuses:
+        applications.append(a)
 
 if not applications:
-    st.info("No applications awaiting final approval.")
+    st.info("No applications awaiting final approval. Confirm the manager action saved as MANAGER_APPROVED for the same institution.")
     st.stop()
 
 # =========================================================
