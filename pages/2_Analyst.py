@@ -4,6 +4,7 @@ import streamlit as st
 from db.supabase_client import supabase
 from datetime import datetime
 from workflow.sidebar_menu import render_sidebar
+from workflow.email_notifications import send_next_stage_notification, send_initiator_outcome_notification
 
 if "user" not in st.session_state:
     st.switch_page("app.py")

@@ -4,6 +4,7 @@ from db.supabase_client import supabase
 from datetime import datetime
 from workflow.sidebar_menu import render_sidebar
 from institution_access import normalize_role, get_display_name, enforce_institution_access, build_actor_entry, render_history, get_stage_actor
+from workflow.email_notifications import send_next_stage_notification, send_initiator_outcome_notification
 
 # ===============================
 # AUTH CHECK
@@ -65,8 +66,10 @@ allowed_statuses = {
     "ANALYST_APPROVED",
     "MANAGER_APPROVED",
     "MANAGER_REJECTED",
+    "MANAGER_POSTPONED",
     "FINAL_APPROVED",
     "FINAL_REJECTED",
+    "FINAL_POSTPONED",
 }
 
 applications = [
@@ -369,7 +372,7 @@ for item in reversed(history):
 is_pending_manager_action = str(app.get("workflow_status") or "").strip().upper() == "ANALYST_APPROVED"
 
 st.markdown("## 📄 Application Overview")
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 col1.write(f"**Client Name:** {app['client_name']}")
 col1.write(f"**Loan Amount:** {format_money(app.get('loan_amount'))}")
 col1.write(f"**Tenor:** {app.get('tenor')} months")
@@ -444,7 +447,7 @@ with col1:
     if st.button("Approve", disabled=not is_pending_manager_action, key=f"approve_manager_{app['id']}"):
         updated_history = app.get("approval_history") or []
         updated_history.append(build_actor_entry(profile, user, role, "APPROVED", decision_note))
-        supabase.table("loan_applications").update({
+        payload = {
             "workflow_status": "MANAGER_APPROVED",
             "approval_history": updated_history,
             "manager_notes": manager_notes,
@@ -460,7 +463,13 @@ with col1:
             "ai_strengths": memo["ai_strengths"],
             "ai_risk_flags": memo["ai_risk_flags"],
             "ai_recommendation": memo["ai_recommendation"],
-        }).eq("id", app["id"]).execute()
+            "loan_amount": revised_loan_amount,
+            "tenor": int(revised_tenor),
+            "recommended_amount": revised_loan_amount,
+            "recommended_tenor": int(revised_tenor),
+        }
+        supabase.table("loan_applications").update(payload).eq("id", app["id"]).execute()
+        send_next_stage_notification(institution, "manager", {**app, **payload}, display_name)
         st.session_state.last_viewed_app = app["id"]
         st.success("Approved successfully")
         st.rerun()
@@ -469,7 +478,7 @@ with col2:
     if st.button("Reject", disabled=not is_pending_manager_action, key=f"reject_manager_{app['id']}"):
         updated_history = app.get("approval_history") or []
         updated_history.append(build_actor_entry(profile, user, role, "REJECTED", decision_note))
-        supabase.table("loan_applications").update({
+        payload = {
             "workflow_status": "MANAGER_REJECTED",
             "approval_history": updated_history,
             "manager_notes": manager_notes,
@@ -485,9 +494,46 @@ with col2:
             "ai_strengths": memo["ai_strengths"],
             "ai_risk_flags": memo["ai_risk_flags"],
             "ai_recommendation": memo["ai_recommendation"],
-        }).eq("id", app["id"]).execute()
+            "loan_amount": revised_loan_amount,
+            "tenor": int(revised_tenor),
+            "recommended_amount": revised_loan_amount,
+            "recommended_tenor": int(revised_tenor),
+        }
+        supabase.table("loan_applications").update(payload).eq("id", app["id"]).execute()
+        send_initiator_outcome_notification({**app, **payload}, "Rejected by Manager", display_name)
         st.session_state.last_viewed_app = app["id"]
         st.success("Rejected successfully")
+        st.rerun()
+
+with col3:
+    if st.button("Postpone", disabled=not is_pending_manager_action, key=f"postpone_manager_{app['id']}"):
+        updated_history = app.get("approval_history") or []
+        updated_history.append(build_actor_entry(profile, user, role, "POSTPONED", decision_note))
+        payload = {
+            "workflow_status": "MANAGER_POSTPONED",
+            "approval_history": updated_history,
+            "manager_notes": manager_notes,
+            "score": metrics.get("credit_score", app.get("score")),
+            "credit_score": metrics.get("credit_score", app.get("credit_score")),
+            "risk_grade": metrics.get("risk_grade", app.get("risk_grade")),
+            "dscr": metrics.get("dscr", app.get("dscr")),
+            "decision": "POSTPONED",
+            "borrower_summary": memo["borrower_summary"],
+            "facility_request": memo["facility_request"],
+            "risk_assessment": memo["risk_assessment"],
+            "decision_summary": "Decision postponed pending additional review / documentation.",
+            "ai_strengths": memo["ai_strengths"],
+            "ai_risk_flags": memo["ai_risk_flags"],
+            "ai_recommendation": "Postpone pending additional review / documentation.",
+            "loan_amount": revised_loan_amount,
+            "tenor": int(revised_tenor),
+            "recommended_amount": revised_loan_amount,
+            "recommended_tenor": int(revised_tenor),
+        }
+        supabase.table("loan_applications").update(payload).eq("id", app["id"]).execute()
+        send_initiator_outcome_notification({**app, **payload}, "Postponed by Manager", display_name)
+        st.session_state.last_viewed_app = app["id"]
+        st.success("Postponed successfully")
         st.rerun()
 
 st.markdown("---")

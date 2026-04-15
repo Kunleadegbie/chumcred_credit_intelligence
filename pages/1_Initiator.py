@@ -6,6 +6,8 @@ from institution_access import normalize_role, get_display_name, enforce_institu
 from workflow.application_service import create_application
 from ai_layer.ai_engine import run_ai_analysis
 from utils.credit_memo import generate_credit_memo
+from workflow.email_notifications import send_next_stage_notification
+import json
 
 # ===============================
 # AUTH CHECK
@@ -352,8 +354,8 @@ tenor = col4.number_input(
 
 loan_purpose = st.selectbox(
     "Loan Purpose",
-    ["Working Capital", "Business Expansion", "Asset Purchase", "Personal Use"],
-    index=["Working Capital", "Business Expansion", "Asset Purchase", "Personal Use"].index(
+    ["Working Capital", "Business Expansion", "Asset Purchase", "Personal Use", "Buy Over / Take Over"],
+    index=["Working Capital", "Business Expansion", "Asset Purchase", "Personal Use", "Buy Over / Take Over"].index(
         st.session_state.get("loan_purpose", "Working Capital")
     ),
     key="loan_purpose"
@@ -428,21 +430,38 @@ decision = "APPROVE" if score >= 75 else "REVIEW" if score >= 50 else "REJECT"
 # =========================================================
 st.markdown("## 📉 Debt & Credit Profile")
 
-col1, col2, col3, col4 = st.columns(4)
-
-total_outstanding_loans = col1.number_input(
-    "Total Outstanding Loans",
-    value=st.session_state.get("total_loans", 200000.0),
+col1, col2, col3 = st.columns(3)
+default_history = col1.selectbox("Past Default History", ["No", "Yes"])
+active_loans = int(col2.number_input("Number of Active Loans", min_value=0, value=1, step=1))
+manual_total_outstanding = col3.number_input(
+    "Other Outstanding Loans (if any)",
+    value=st.session_state.get("total_loans", 0.0),
     key="total_loans"
 )
 
-monthly_repayment = col2.number_input(
+existing_loans = []
+st.markdown("### Existing Loan Details")
+for i in range(active_loans):
+    l1, l2, l3, l4 = st.columns(4)
+    existing_loans.append({
+        "loan_type": l1.selectbox(f"Loan Type #{i+1}", ["Personal Loan", "Working Capital", "Asset Finance", "Buy Over / Take Over", "Mortgage", "Other"], key=f"existing_loan_type_{i}"),
+        "financier": l2.text_input(f"Financier #{i+1}", key=f"existing_financier_{i}"),
+        "tenor": l3.number_input(f"Tenor #{i+1} (Months)", min_value=0, value=0, key=f"existing_tenor_{i}"),
+        "amount": l4.number_input(f"Amount #{i+1}", min_value=0.0, value=0.0, key=f"existing_amount_{i}"),
+    })
+
+calculated_existing_total = sum(float(x.get("amount") or 0) for x in existing_loans)
+total_outstanding_loans = calculated_existing_total + float(manual_total_outstanding or 0)
+
+monthly_repayment = st.number_input(
     "Monthly Loan Repayment",
     value=st.session_state.get("monthly_repayment", 50000.0),
     key="monthly_repayment"
 )
-default_history = col3.selectbox("Past Default History", ["No", "Yes"])
-active_loans = col4.number_input("Number of Active Loans", value=1)
+
+gross_income_for_dti = float((monthly_income or revenue or (daily_sales * 26 if daily_sales else 0)) or 0)
+dti = round((monthly_repayment / gross_income_for_dti) * 100, 2) if gross_income_for_dti > 0 else 0.0
+st.info(f"Debt-to-Income Ratio (DTI): {dti:.2f}%")
 
 # =========================================================
 # SECTION 4 — STABILITY, BUFFER & SUPPORT
@@ -497,6 +516,8 @@ if run_btn:
         "monthly_repayment": monthly_repayment,
         "default_history": default_history,
         "active_loans": active_loans,
+        "dti": dti,
+        "existing_loans": existing_loans,
 
         "cash_reserve": cash_reserve,
         "average_balance": avg_account_balance,
@@ -622,6 +643,8 @@ if "last_result" in st.session_state:
             "monthly_repayment": monthly_repayment,
             "default_history": default_history,
             "active_loans": active_loans,
+            "dti": dti,
+            "existing_loans": existing_loans,
 
             "avg_account_balance": avg_account_balance,
             "cash_reserve": cash_reserve,
@@ -649,6 +672,7 @@ if "last_result" in st.session_state:
             payload["initiated_by_name"] = display_name
 
         create_application(payload)
+        send_next_stage_notification(institution, "initiator", payload, display_name)
         st.success("Submitted to Analyst")
 
         st.session_state.last_result = result
@@ -666,7 +690,7 @@ all_my_apps = supabase.table("loan_applications")     .select("*")     .eq("init
 # =========================================================
 st.markdown("### 📑 All Submitted Applications")
 
-submitted_statuses = {"SUBMITTED", "ANALYST_APPROVED", "ANALYST_REJECTED", "MANAGER_APPROVED", "MANAGER_REJECTED", "FINAL_APPROVED", "FINAL_REJECTED"}
+submitted_statuses = {"SUBMITTED", "ANALYST_APPROVED", "ANALYST_REJECTED", "ANALYST_POSTPONED", "MANAGER_APPROVED", "MANAGER_REJECTED", "MANAGER_POSTPONED", "FINAL_APPROVED", "FINAL_REJECTED", "FINAL_POSTPONED"}
 submitted_apps = [r for r in all_my_apps if str(r.get("workflow_status") or "").strip().upper() in submitted_statuses]
 
 if not submitted_apps:

@@ -3,6 +3,7 @@ from db.supabase_client import supabase
 from datetime import datetime
 from workflow.sidebar_menu import render_sidebar
 from institution_access import normalize_role, get_display_name, enforce_institution_access, build_actor_entry, render_history, get_stage_actor
+from workflow.email_notifications import send_initiator_outcome_notification
 
 # ===============================
 # AUTH CHECK
@@ -61,7 +62,7 @@ st.caption(f"Institution: {institution} | User: {display_name} | Email: {email} 
 
 def is_final_queue_candidate(record):
     status = str(record.get("workflow_status") or "").strip().upper()
-    if status in {"MANAGER_APPROVED", "FINAL_APPROVED", "FINAL_REJECTED"}:
+    if status in {"MANAGER_APPROVED", "FINAL_APPROVED", "FINAL_REJECTED", "FINAL_POSTPONED"}:
         return True
 
     history = record.get("approval_history") or []
@@ -92,7 +93,7 @@ all_applications = supabase.table("loan_applications") \
     .order("created_at", desc=True) \
     .execute().data or []
 
-allowed_statuses = {"MANAGER_APPROVED", "FINAL_APPROVED", "FINAL_REJECTED"}
+allowed_statuses = {"MANAGER_APPROVED", "FINAL_APPROVED", "FINAL_REJECTED", "FINAL_POSTPONED"}
 applications = [a for a in all_applications if is_final_queue_candidate(a)]
 
 if not applications:
@@ -355,7 +356,7 @@ else:
 # =========================================================
 st.markdown("## 📄 Executive Summary")
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 
 col1.write(f"**Client Name:** {app['client_name']}")
 col1.write(f"**Loan Amount:** ₦{app['loan_amount']:,.0f}")
@@ -471,6 +472,11 @@ decision_note = st.text_area(
     key="final_note"
 )
 
+st.markdown("### ✏️ Superior Officer Adjustment")
+adj1, adj2 = st.columns(2)
+revised_loan_amount = adj1.number_input("Final Approved / Recommended Loan Amount", min_value=0.0, value=float(app.get("loan_amount") or 0), key=f"final_revised_amount_{app['id']}")
+revised_tenor = adj2.number_input("Final Approved / Recommended Tenor (Months)", min_value=1, value=int(app.get("tenor") or 1), key=f"final_revised_tenor_{app['id']}")
+
 if not is_pending_final_action:
     st.info("This application has already been reviewed at final approval stage. Saved data is shown for reference.")
 
@@ -526,6 +532,35 @@ with col2:
 
         st.session_state.last_viewed_app = app["id"]
         st.success("Rejected successfully")
+        st.rerun()
+
+with col3:
+    if st.button("Postpone", disabled=not is_pending_final_action):
+        history = app.get("approval_history") or []
+        postpone_entry = build_actor_entry(profile, user, role, "POSTPONED", decision_note)
+        if isinstance(postpone_entry, dict):
+            postpone_entry["user"] = email
+        history.append(postpone_entry)
+
+        payload = {
+                "workflow_status": "FINAL_POSTPONED",
+                "approval_history": history,
+                "final_notes": final_notes,
+                "score": metrics.get("credit_score", app.get("score")),
+                "credit_score": metrics.get("credit_score", app.get("credit_score")),
+                "risk_grade": metrics.get("risk_grade", app.get("risk_grade")),
+                "dscr": metrics.get("dscr", app.get("dscr")),
+                "decision": "POSTPONED",
+                "loan_amount": revised_loan_amount,
+                "tenor": int(revised_tenor),
+                "approved_amount": revised_loan_amount,
+                "approved_tenor": int(revised_tenor)
+            }
+        supabase.table("loan_applications")             .update(payload)             .eq("id", app["id"])             .execute()
+
+        send_initiator_outcome_notification({**app, **payload}, "Postponed / Put on Hold", display_name)
+        st.session_state.last_viewed_app = app["id"]
+        st.success("Postponed successfully")
         st.rerun()
 
 # =========================================================

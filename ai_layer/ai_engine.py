@@ -24,6 +24,8 @@ def run_ai_analysis(data, score, decision):
     cash_reserve = safe_float(data.get("cash_reserve", 0))
     avg_balance = safe_float(data.get("average_balance", 0))
     collateral = data.get("collateral_type")
+    dti_value = safe_float(data.get("dti", 0))
+    existing_loans = data.get("existing_loans") or []
     collateral_value = safe_float(data.get("collateral_value", 0))
     default_history = str(data.get("default_history", "No") or "No").strip().lower()
 
@@ -45,11 +47,22 @@ def run_ai_analysis(data, score, decision):
     borrower_profile = f"The borrower is a {borrower} applying for a credit facility."
     facility_details = f"The applicant requests ₦{amount:,.0f} for {purpose} over {tenor} months."
 
+    existing_loans_text = ""
+    if existing_loans:
+        loan_parts = []
+        for loan in existing_loans:
+            loan_parts.append(
+                f"{loan.get('loan_type', 'Loan')} with {loan.get('financier', 'N/A')} amounting to ₦{safe_float(loan.get('amount', 0)):,.0f} over {loan.get('tenor', 'N/A')} months"
+            )
+        existing_loans_text = " Existing loan details: " + "; ".join(loan_parts) + "."
+
     financial_summary = (
         f"The borrower shows effective monthly cash inflow of ₦{effective_income:,.0f}, "
         f"monthly obligations/expenses of ₦{effective_expenses:,.0f}, and estimated net surplus of ₦{surplus:,.0f}. "
         f"Existing outstanding obligations are ₦{outstanding:,.0f}, proposed monthly repayment is ₦{monthly_repayment:,.0f}, "
-        f"while cash reserve and average balance stand at ₦{cash_reserve:,.0f} and ₦{avg_balance:,.0f} respectively."
+        f"while cash reserve and average balance stand at ₦{cash_reserve:,.0f} and ₦{avg_balance:,.0f} respectively. "
+        f"Debt-to-Income ratio (DTI) is {dti_value:.2f}%."
+        f"{existing_loans_text}"
     )
 
     if score >= 80:
@@ -65,7 +78,7 @@ def run_ai_analysis(data, score, decision):
     risk_assessment = (
         f"The obligor is graded {risk_grade} with a {risk} risk profile based on cash-flow strength, repayment capacity, "
         f"existing obligations, collateral support, and repayment behavior. "
-        f"Indicative DSCR is {dscr:.2f}x and collateral cover is {collateral_cover:.2f}x."
+        f"Indicative DSCR is {dscr:.2f}x, collateral cover is {collateral_cover:.2f}x, and DTI is {dti_value:.2f}%."
     )
 
     mitigants = (
