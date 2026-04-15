@@ -103,6 +103,23 @@ for a in applications:
     app_labels.append(label)
     app_map[label] = a.get("id")
 
+original_loan_amount = app.get("loan_amount", 0)
+original_tenor = app.get("tenor", 0)
+
+revised_loan_amount = st.number_input(
+    "Adjust Loan Amount",
+    min_value=0.0,
+    value=float(original_loan_amount),
+    step=1000.0
+)
+
+revised_tenor = st.number_input(
+    "Adjust Tenor (Months)",
+    min_value=1,
+    value=int(original_tenor),
+    step=1
+)
+
 default_index = 0
 last_viewed_app = st.session_state.get("last_viewed_app")
 if last_viewed_app:
