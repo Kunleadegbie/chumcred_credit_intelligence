@@ -3,7 +3,7 @@ from db.supabase_client import supabase
 from datetime import datetime
 from workflow.sidebar_menu import render_sidebar
 from institution_access import normalize_role, get_display_name, enforce_institution_access, build_actor_entry, render_history, get_stage_actor
-from workflow.email_notifications import send_initiator_outcome_notification
+from workflow.email_notifications import send_next_stage_notification, send_initiator_outcome
 
 # ===============================
 # AUTH CHECK
