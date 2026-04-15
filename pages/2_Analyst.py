@@ -1,4 +1,3 @@
-# Analyst page
 
 import streamlit as st
 from db.supabase_client import supabase
@@ -14,7 +13,7 @@ resp = supabase.table("user_profiles").select("*").eq("id", user.id).execute()
 if resp.data:
     profile = resp.data[0]
 else:
-    profile = {"id": user.id, "email": user.email, "role": "pending", "institution": ""}
+    profile = {"id": user.id, "email": getattr(user, "email", ""), "role": "pending", "institution": ""}
     supabase.table("user_profiles").insert(profile).execute()
 
 
@@ -49,14 +48,11 @@ if not allow("analyst", "credit_analyst"):
     st.error("Access denied")
     st.stop()
 
-st.markdown(
-    """
+st.markdown("""
 <style>
 .card {background-color:#fff;padding:20px;border-radius:12px;border:1px solid #e6e6e6;margin-bottom:15px;}
 </style>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
 st.title("🔎 Credit Analyst Desk")
 st.caption(f"Institution: {institution or 'Not set'} | User: {display_name} | Email: {email} | Role: {role}")
@@ -69,7 +65,6 @@ def format_money(value):
         return "₦0"
 
 
-
 def safe_float(value, default=0.0):
     try:
         if value in [None, "", "None", "null"]:
@@ -79,14 +74,12 @@ def safe_float(value, default=0.0):
         return float(default)
 
 
-
 def safe_text(value, fallback="—"):
     if value is None:
         return fallback
     if isinstance(value, str) and value.strip() in ["", "None", "null"]:
         return fallback
     return value
-
 
 
 def clean_list(values):
@@ -100,7 +93,6 @@ def clean_list(values):
         if text and text.lower() not in ["none", "null", "—"]:
             cleaned.append(text)
     return cleaned
-
 
 
 def unique_list(values):
@@ -117,10 +109,8 @@ def unique_list(values):
     return output
 
 
-
 def build_safe_update_payload(existing_record, payload):
     return {key: value for key, value in payload.items() if key in (existing_record or {})}
-
 
 
 def get_latest_stage_note(history_items, stage_name):
@@ -130,7 +120,6 @@ def get_latest_stage_note(history_items, stage_name):
             if note:
                 return note
     return ""
-
 
 
 def estimate_monthly_net_cash_flow(record):
@@ -164,56 +153,11 @@ def estimate_monthly_net_cash_flow(record):
     return round(net_cash_flow, 2), round(gross_cash_flow, 2)
 
 
-
-def get_canonical_bank_result(record):
-    bank_result = calculate_bank_grade(record)
-
-    stored_score = record.get("credit_score", record.get("score"))
-    stored_grade = record.get("risk_grade")
-    stored_dscr = record.get("dscr")
-    stored_decision = record.get("decision")
-
-    if stored_score not in [None, "", "None", "null"]:
-        try:
-            canonical_score = int(float(stored_score))
-            bank_result["credit_score"] = canonical_score
-            bank_result["score"] = canonical_score
-        except Exception:
-            pass
-
-    if stored_grade not in [None, "", "None", "null"]:
-        bank_result["risk_grade"] = str(stored_grade).strip().upper()
-        if bank_result["risk_grade"] == "A":
-            bank_result["risk_level"] = "Low Risk"
-        elif bank_result["risk_grade"] == "B":
-            bank_result["risk_level"] = "Moderate Risk"
-        else:
-            bank_result["risk_level"] = "High Risk"
-
-    if stored_dscr not in [None, "", "None", "null"]:
-        try:
-            bank_result["dscr"] = round(float(stored_dscr), 2)
-        except Exception:
-            pass
-
-    if stored_decision not in [None, "", "None", "null"]:
-        bank_result["decision"] = str(stored_decision).strip()
-
-    bank_result["risk_assessment"] = (
-        f"The obligor is graded {bank_result['risk_grade']} ({bank_result['risk_level']}) "
-        f"with a credit score of {bank_result['credit_score']}/100 and DSCR of {bank_result['dscr']:.2f}x."
-    )
-    bank_result["decision_summary"] = f"Final recommendation is {bank_result['decision']}."
-    bank_result["ai_recommendation"] = f"Facility recommendation: {bank_result['decision']}."
-    return bank_result
-
-
 def calculate_bank_grade(record):
     name = record.get("client_name", "Borrower")
-    borrower_type = str(record.get("borrower_type") or "Borrower").strip()
     purpose = str(record.get("loan_purpose") or "business operations").strip()
-    loan_amount = safe_float(record.get("loan_amount"))
-    tenor = max(int(safe_float(record.get("tenor"), 1) or 1), 1)
+    loan_amount = safe_float(record.get("recommended_amount") or record.get("approved_amount") or record.get("loan_amount"))
+    tenor = max(int(safe_float(record.get("recommended_tenor") or record.get("approved_tenor") or record.get("tenor"), 1) or 1), 1)
     monthly_repayment = safe_float(record.get("monthly_repayment"))
     outstanding = safe_float(record.get("total_outstanding_loans"))
     collateral_value = safe_float(record.get("collateral_value"))
@@ -345,6 +289,48 @@ def calculate_bank_grade(record):
     }
 
 
+def get_canonical_bank_result(record):
+    bank_result = calculate_bank_grade(record)
+    stored_score = record.get("credit_score", record.get("score"))
+    stored_grade = record.get("risk_grade")
+    stored_dscr = record.get("dscr")
+    stored_decision = record.get("decision")
+
+    if stored_score not in [None, "", "None", "null"]:
+        try:
+            canonical_score = int(float(stored_score))
+            bank_result["credit_score"] = canonical_score
+            bank_result["score"] = canonical_score
+        except Exception:
+            pass
+
+    if stored_grade not in [None, "", "None", "null"]:
+        bank_result["risk_grade"] = str(stored_grade).strip().upper()
+        if bank_result["risk_grade"] == "A":
+            bank_result["risk_level"] = "Low Risk"
+        elif bank_result["risk_grade"] == "B":
+            bank_result["risk_level"] = "Moderate Risk"
+        else:
+            bank_result["risk_level"] = "High Risk"
+
+    if stored_dscr not in [None, "", "None", "null"]:
+        try:
+            bank_result["dscr"] = round(float(stored_dscr), 2)
+        except Exception:
+            pass
+
+    if stored_decision not in [None, "", "None", "null"]:
+        bank_result["decision"] = str(stored_decision).strip()
+
+    bank_result["risk_assessment"] = (
+        f"The obligor is graded {bank_result['risk_grade']} ({bank_result['risk_level']}) "
+        f"with a credit score of {bank_result['credit_score']}/100 and DSCR of {bank_result['dscr']:.2f}x."
+    )
+    bank_result["decision_summary"] = f"Final recommendation is {bank_result['decision']}."
+    bank_result["ai_recommendation"] = f"Facility recommendation: {bank_result['decision']}."
+    return bank_result
+
+
 rows = (
     supabase.table("loan_applications")
     .select("*")
@@ -355,13 +341,9 @@ rows = (
     or []
 )
 allowed_statuses = {
-    "SUBMITTED",
-    "ANALYST_APPROVED",
-    "ANALYST_REJECTED",
-    "MANAGER_APPROVED",
-    "MANAGER_REJECTED",
-    "FINAL_APPROVED",
-    "FINAL_REJECTED",
+    "SUBMITTED", "ANALYST_APPROVED", "ANALYST_REJECTED", "ANALYST_POSTPONED",
+    "MANAGER_APPROVED", "MANAGER_REJECTED", "MANAGER_POSTPONED",
+    "FINAL_APPROVED", "FINAL_REJECTED", "FINAL_POSTPONED",
 }
 applications = [row for row in rows if (row.get("workflow_status") or "") in allowed_statuses]
 
@@ -392,6 +374,18 @@ history = app.get("approval_history") or []
 existing_analyst_notes = str(app.get("analyst_notes") or "")
 existing_decision_note = get_latest_stage_note(history, role.upper())
 is_pending_analyst_action = str(app.get("workflow_status") or "").strip().upper() == "SUBMITTED"
+
+original_loan_amount = float(app.get("recommended_amount") or app.get("loan_amount") or 0)
+original_tenor = int(app.get("recommended_tenor") or app.get("tenor") or 1)
+
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.markdown("### ✏️ Facility Adjustment")
+adj1, adj2 = st.columns(2)
+with adj1:
+    revised_loan_amount = st.number_input("Adjust Loan Amount", min_value=0.0, value=original_loan_amount, step=1000.0, key=f"analyst_revised_amount_{app['id']}")
+with adj2:
+    revised_tenor = st.number_input("Adjust Tenor (Months)", min_value=1, value=original_tenor, step=1, key=f"analyst_revised_tenor_{app['id']}")
+st.markdown('</div>', unsafe_allow_html=True)
 
 saved_strengths = clean_list(app.get("ai_strengths"))
 saved_risks = clean_list(app.get("ai_risk_flags"))
@@ -455,98 +449,92 @@ st.markdown('</div>', unsafe_allow_html=True)
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.markdown("### ✍️ Analyst Decision")
 analyst_notes = st.text_area("Analyst Notes", value=existing_analyst_notes, key=f"analyst_notes_{app['id']}")
-decision_note = st.text_area("Approval / Rejection Note", value=existing_decision_note, key=f"decision_note_{app['id']}")
+decision_note = st.text_area("Approval / Rejection / Postpone Note", value=existing_decision_note, key=f"decision_note_{app['id']}")
 if not is_pending_analyst_action:
     st.info("This application has already been reviewed at analyst stage. Saved data is shown for reference.")
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
+common_payload = {
+    "score": bank_result["credit_score"],
+    "credit_score": bank_result["credit_score"],
+    "risk_grade": bank_result["risk_grade"],
+    "risk_level": bank_result["risk_level"],
+    "dscr": bank_result["dscr"],
+    "borrower_summary": memo["borrower_summary"],
+    "facility_request": memo["facility_request"],
+    "risk_assessment": memo["risk_assessment"],
+    "decision_summary": memo["decision_summary"],
+    "ai_strengths": memo["ai_strengths"],
+    "ai_risk_flags": memo["ai_risk_flags"],
+    "ai_recommendation": memo["ai_recommendation"],
+    "analyst_notes": analyst_notes,
+    "analyst_review_by": user.id,
+    "analyst_review_at": str(datetime.now()),
+    "loan_amount": revised_loan_amount,
+    "tenor": int(revised_tenor),
+    "recommended_amount": revised_loan_amount,
+    "recommended_tenor": int(revised_tenor),
+}
+
 with col1:
     if st.button("Approve", disabled=not is_pending_analyst_action, key=f"approve_analyst_{app['id']}"):
         updated_history = app.get("approval_history") or []
         updated_history.append({"stage": role.upper(), "action": "APPROVED", "user": user.id, "timestamp": str(datetime.now()), "note": decision_note})
-        payload = build_safe_update_payload(
-            app,
-            {
-                "workflow_status": "ANALYST_APPROVED",
-                "score": bank_result["credit_score"],
-                "credit_score": bank_result["credit_score"],
-                "risk_grade": bank_result["risk_grade"],
-                "risk_level": bank_result["risk_level"],
-                "dscr": bank_result["dscr"],
-                "decision": bank_result["decision"],
-                "approval_history": updated_history,
-                "analyst_notes": analyst_notes,
-                "score": bank_result["credit_score"],
-                "decision": bank_result["decision"],
-                "credit_score": bank_result["credit_score"],
-                "risk_grade": bank_result["risk_grade"],
-                "risk_level": bank_result["risk_level"],
-                "dscr": bank_result["dscr"],
-                "monthly_income": app.get("monthly_income"),
-                "monthly_expenses": app.get("monthly_expenses"),
-                "deductions": app.get("deductions"),
-                "revenue": app.get("revenue"),
-                "bank_inflow": app.get("bank_inflow"),
-                "daily_sales": app.get("daily_sales"),
-                "financial_summary": safe_text(app.get("financial_summary"), ""),
-                "monthly_income": app.get("monthly_income"),
-                "monthly_expenses": app.get("monthly_expenses"),
-                "deductions": app.get("deductions"),
-                "revenue": app.get("revenue"),
-                "bank_inflow": app.get("bank_inflow"),
-                "daily_sales": app.get("daily_sales"),
-                "financial_summary": safe_text(app.get("financial_summary"), ""),
-                "borrower_summary": memo["borrower_summary"],
-                "facility_request": memo["facility_request"],
-                "risk_assessment": memo["risk_assessment"],
-                "decision_summary": memo["decision_summary"],
-                "ai_strengths": memo["ai_strengths"],
-                "ai_risk_flags": memo["ai_risk_flags"],
-                "ai_recommendation": memo["ai_recommendation"],
-                "analyst_review_by": user.id,
-                "analyst_review_at": str(datetime.now()),
-            },
-        )
+        payload = build_safe_update_payload(app, {
+            **common_payload,
+            "workflow_status": "ANALYST_APPROVED",
+            "approval_history": updated_history,
+            "decision": bank_result["decision"],
+        })
         supabase.table("loan_applications").update(payload).eq("id", app["id"]).execute()
+        send_next_stage_notification(institution, "analyst", {**app, **payload}, display_name)
         st.session_state.last_viewed_app = app["id"]
         st.success("Approved successfully")
         st.rerun()
+
 with col2:
     if st.button("Reject", disabled=not is_pending_analyst_action, key=f"reject_analyst_{app['id']}"):
         updated_history = app.get("approval_history") or []
         updated_history.append({"stage": role.upper(), "action": "REJECTED", "user": user.id, "timestamp": str(datetime.now()), "note": decision_note})
-        payload = build_safe_update_payload(
-            app,
-            {
-                "workflow_status": "ANALYST_REJECTED",
-                "score": bank_result["credit_score"],
-                "credit_score": bank_result["credit_score"],
-                "risk_grade": bank_result["risk_grade"],
-                "risk_level": bank_result["risk_level"],
-                "dscr": bank_result["dscr"],
-                "decision": bank_result["decision"],
-                "approval_history": updated_history,
-                "analyst_notes": analyst_notes,
-                "score": bank_result["credit_score"],
-                "decision": bank_result["decision"],
-                "credit_score": bank_result["credit_score"],
-                "risk_grade": bank_result["risk_grade"],
-                "risk_level": bank_result["risk_level"],
-                "dscr": bank_result["dscr"],
-                "borrower_summary": memo["borrower_summary"],
-                "facility_request": memo["facility_request"],
-                "risk_assessment": memo["risk_assessment"],
-                "decision_summary": memo["decision_summary"],
-                "ai_strengths": memo["ai_strengths"],
-                "ai_risk_flags": memo["ai_risk_flags"],
-                "ai_recommendation": memo["ai_recommendation"],
-                "analyst_review_by": user.id,
-                "analyst_review_at": str(datetime.now()),
-            },
-        )
+        payload = build_safe_update_payload(app, {
+            **common_payload,
+            "workflow_status": "ANALYST_REJECTED",
+            "approval_history": updated_history,
+            "decision": "REJECTED",
+        })
         supabase.table("loan_applications").update(payload).eq("id", app["id"]).execute()
+        send_initiator_outcome({**app, **payload}, "Rejected by Analyst")
         st.session_state.last_viewed_app = app["id"]
         st.success("Rejected successfully")
         st.rerun()
+
+with col3:
+    if st.button("Postpone", disabled=not is_pending_analyst_action, key=f"postpone_analyst_{app['id']}"):
+        updated_history = app.get("approval_history") or []
+        updated_history.append({"stage": role.upper(), "action": "POSTPONED", "user": user.id, "timestamp": str(datetime.now()), "note": decision_note})
+        payload = build_safe_update_payload(app, {
+            **common_payload,
+            "workflow_status": "ANALYST_POSTPONED",
+            "approval_history": updated_history,
+            "decision": "POSTPONED",
+            "decision_summary": "Decision postponed pending additional review / documentation.",
+            "ai_recommendation": "Postpone pending additional review / documentation.",
+        })
+        supabase.table("loan_applications").update(payload).eq("id", app["id"]).execute()
+        send_initiator_outcome({**app, **payload}, "Postponed by Analyst")
+        st.session_state.last_viewed_app = app["id"]
+        st.success("Postponed successfully")
+        st.rerun()
 st.markdown('</div>', unsafe_allow_html=True)
-s
+
+st.markdown("## 🧾 Approval History")
+history = app.get("approval_history") or []
+if history:
+    for h in history:
+        st.markdown(
+            f"**{h.get('stage','')}** → {h.get('action','')}  \n"
+            f"Note: {h.get('note','')}  \n"
+            f"Time: {h.get('timestamp','')}"
+        )
+else:
+    st.info("No approvals yet")

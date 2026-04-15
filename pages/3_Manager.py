@@ -1,49 +1,29 @@
+
 import streamlit as st
 from db.supabase_client import supabase
 from workflow.sidebar_menu import render_sidebar
 from institution_access import normalize_role, get_display_name, enforce_institution_access, build_actor_entry, render_history, get_stage_actor
 from workflow.email_notifications import send_next_stage_notification, send_initiator_outcome
 
-# ===============================
-# AUTH CHECK
-# ===============================
 if "user" not in st.session_state:
     st.switch_page("app.py")
 
 user = st.session_state.user
-
-# ===============================
-# FETCH PROFILE (SAFE)
-# ===============================
 resp = supabase.table("user_profiles").select("*").eq("id", user.id).execute()
 if resp.data:
     profile = resp.data[0]
 else:
-    profile = {
-        "id": user.id,
-        "email": getattr(user, "email", ""),
-        "role": "pending",
-        "institution": ""
-    }
+    profile = {"id": user.id, "email": getattr(user, "email", ""), "role": "pending", "institution": ""}
     supabase.table("user_profiles").insert(profile).execute()
 
-# ===============================
-# EXTRACT ROLE
-# ===============================
 role = normalize_role(profile.get("role"))
 institution = profile.get("institution") or ""
 email = profile.get("email") or getattr(user, "email", "") or ""
 display_name = get_display_name(profile, user)
 
-# ===============================
-# SIDEBAR
-# ===============================
 render_sidebar(role)
 enforce_institution_access(profile, "page")
 
-# ===============================
-# ACCESS CONTROL
-# ===============================
 def allow(*allowed):
     allowed = [normalize_role(r) for r in allowed]
     return role in allowed or role == "super_admin"
@@ -55,9 +35,6 @@ if not allow("manager"):
 st.title("🏁 Credit Manager Desk")
 st.caption(f"Institution: {institution} | User: {display_name} | Email: {email} | Role: {role}")
 
-# =========================================================
-# LOAD APPLICATIONS
-# =========================================================
 all_applications = (
     supabase.table("loan_applications")
     .select("*")
@@ -67,27 +44,15 @@ all_applications = (
 )
 
 allowed_statuses = {
-    "ANALYST_APPROVED",
-    "MANAGER_APPROVED",
-    "MANAGER_REJECTED",
-    "MANAGER_POSTPONED",
-    "FINAL_APPROVED",
-    "FINAL_REJECTED",
-    "FINAL_POSTPONED",
+    "ANALYST_APPROVED", "MANAGER_APPROVED", "MANAGER_REJECTED", "MANAGER_POSTPONED",
+    "FINAL_APPROVED", "FINAL_REJECTED", "FINAL_POSTPONED",
 }
-
-applications = [
-    a for a in all_applications
-    if str(a.get("workflow_status") or "").strip().upper() in allowed_statuses
-]
+applications = [a for a in all_applications if str(a.get("workflow_status") or "").strip().upper() in allowed_statuses]
 
 if not applications:
     st.info("No applications awaiting manager review.")
     st.stop()
 
-# =========================================================
-# SELECT APPLICATION
-# =========================================================
 def format_money(value):
     try:
         return f"₦{float(value or 0):,.0f}"
@@ -96,7 +61,6 @@ def format_money(value):
 
 app_labels = []
 app_map = {}
-
 for a in applications:
     label = (
         f"{a.get('client_name', 'Unknown Client')} | "
@@ -117,49 +81,24 @@ if last_viewed_app:
 
 selected_label = st.selectbox("Select Application", app_labels, index=default_index)
 selected_id = app_map[selected_label]
+app = supabase.table("loan_applications").select("*").eq("id", selected_id).single().execute().data
 
-app_resp = (
-    supabase.table("loan_applications")
-    .select("*")
-    .eq("id", selected_id)
-    .single()
-    .execute()
-)
-app = app_resp.data
-
-# Editable terms must come after app is loaded
 original_loan_amount = float(app.get("approved_amount") or app.get("recommended_amount") or app.get("loan_amount") or 0)
 original_tenor = int(app.get("approved_tenor") or app.get("recommended_tenor") or app.get("tenor") or 1)
 
 st.markdown("## ✏️ Facility Adjustment")
 adj1, adj2 = st.columns(2)
 with adj1:
-    revised_loan_amount = st.number_input(
-        "Adjust Loan Amount",
-        min_value=0.0,
-        value=float(original_loan_amount),
-        step=1000.0,
-        key=f"manager_revised_loan_amount_{app['id']}"
-    )
+    revised_loan_amount = st.number_input("Adjust Loan Amount", min_value=0.0, value=float(original_loan_amount), step=1000.0, key=f"manager_revised_loan_amount_{app['id']}")
 with adj2:
-    revised_tenor = st.number_input(
-        "Adjust Tenor (Months)",
-        min_value=1,
-        value=int(original_tenor),
-        step=1,
-        key=f"manager_revised_tenor_{app['id']}"
-    )
+    revised_tenor = st.number_input("Adjust Tenor (Months)", min_value=1, value=int(original_tenor), step=1, key=f"manager_revised_tenor_{app['id']}")
 
-# =========================================================
-# HELPERS
-# =========================================================
 def safe_text(val, fallback="—"):
     if val is None:
         return fallback
     if isinstance(val, str) and val.strip() in ["", "None", "null"]:
         return fallback
     return val
-
 
 def clean_list(values):
     if not values:
@@ -173,16 +112,15 @@ def clean_list(values):
             cleaned.append(s)
     return cleaned
 
+def safe_float(value, default=0.0):
+    try:
+        if value in [None, "", "None", "null"]:
+            return float(default)
+        return float(value)
+    except Exception:
+        return float(default)
 
 def calculate_bank_grade_metrics(record):
-    def safe_float(value, default=0.0):
-        try:
-            if value in [None, "", "None", "null"]:
-                return float(default)
-            return float(value)
-        except Exception:
-            return float(default)
-
     loan_amount = safe_float(record.get("recommended_amount") or record.get("approved_amount") or record.get("loan_amount"))
     monthly_repayment = safe_float(record.get("monthly_repayment"))
     collateral_value = safe_float(record.get("collateral_value"))
@@ -191,68 +129,41 @@ def calculate_bank_grade_metrics(record):
     income = safe_float(record.get("monthly_income") or record.get("revenue"))
     expenses = safe_float(record.get("monthly_expenses") or record.get("expenses"))
     available = max(income - expenses, 0.0)
-
     dscr = round(available / monthly_repayment, 2) if monthly_repayment > 0 else 0.0
     collateral_cover = round(collateral_value / loan_amount, 2) if loan_amount > 0 else 0.0
-
     score = int(float(record.get("credit_score") or record.get("score") or 0))
-    if score >= 80:
-        risk_grade = "A"
-    elif score >= 65:
-        risk_grade = "B"
-    else:
-        risk_grade = "C"
-
-    return {
-        "credit_score": score,
-        "risk_grade": risk_grade,
-        "dscr": dscr,
-        "collateral_cover": collateral_cover,
-    }
-
+    risk_grade = "A" if score >= 80 else "B" if score >= 65 else "C"
+    return {"credit_score": score, "risk_grade": risk_grade, "dscr": dscr, "collateral_cover": collateral_cover}
 
 def get_canonical_metrics(record):
     metrics = calculate_bank_grade_metrics(record)
-
     stored_score = record.get("credit_score", record.get("score"))
     stored_grade = record.get("risk_grade")
     stored_dscr = record.get("dscr")
     stored_decision = record.get("decision")
-
     if stored_score not in [None, "", "None", "null"]:
         try:
             metrics["credit_score"] = int(float(stored_score))
         except Exception:
             pass
-
     if stored_grade not in [None, "", "None", "null"]:
         metrics["risk_grade"] = str(stored_grade).strip().upper()
-
     if stored_dscr not in [None, "", "None", "null"]:
         try:
             metrics["dscr"] = round(float(stored_dscr), 2)
         except Exception:
             pass
-
     if stored_decision not in [None, "", "None", "null"]:
         metrics["decision"] = str(stored_decision).strip()
     else:
-        if metrics["risk_grade"] == "A":
-            metrics["decision"] = "APPROVE"
-        elif metrics["risk_grade"] == "B":
-            metrics["decision"] = "APPROVE WITH CONDITIONS"
-        else:
-            metrics["decision"] = "REJECT"
-
+        metrics["decision"] = "APPROVE" if metrics["risk_grade"] == "A" else "APPROVE WITH CONDITIONS" if metrics["risk_grade"] == "B" else "REJECT"
     return metrics
-
 
 def generate_bank_grade_memo(record):
     name = record.get("client_name", "Borrower")
     loan_amount = float(record.get("approved_amount") or record.get("recommended_amount") or record.get("loan_amount") or 0)
     purpose = record.get("loan_purpose") or "business operations"
     tenor = record.get("approved_tenor") or record.get("recommended_tenor") or record.get("tenor") or 0
-
     repayment = float(record.get("monthly_repayment") or 0)
     reserve = float(record.get("cash_reserve") or 0)
     outstanding = float(record.get("total_outstanding_loans") or 0)
@@ -303,55 +214,32 @@ def generate_bank_grade_memo(record):
     else:
         risks.append("High existing financial obligations")
 
-    if score >= 6:
-        decision = "APPROVE"
-        risk_level = "Low Risk"
-    elif score >= 3:
-        decision = "APPROVE WITH CONDITIONS"
-        risk_level = "Moderate Risk"
-    else:
-        decision = "REJECT"
-        risk_level = "High Risk"
+    decision = "APPROVE" if score >= 6 else "APPROVE WITH CONDITIONS" if score >= 3 else "REJECT"
+    risk_level = "Low Risk" if score >= 6 else "Moderate Risk" if score >= 3 else "High Risk"
 
     borrower_summary = (
         f"{name} is requesting a loan facility to support {purpose}. "
         f"The borrower currently maintains outstanding obligations of ₦{outstanding:,.0f} "
         f"and a proposed monthly repayment obligation of ₦{repayment:,.0f}."
     )
-
-    facility_request = (
-        f"A facility of ₦{loan_amount:,.0f} is requested for a tenor of {tenor} months "
-        f"to finance {purpose}."
-    )
-
+    facility_request = f"A facility of ₦{loan_amount:,.0f} is requested for a tenor of {tenor} months to finance {purpose}."
     risk_assessment = (
         f"The facility is assessed as {risk_level}. The evaluation reflects the borrower’s "
         f"liquidity position, collateral adequacy, existing exposure profile, and credit history. "
         f"Collateral coverage stands at ₦{collateral:,.0f} while available liquidity buffer is "
         f"estimated at ₦{reserve:,.0f}."
     )
-
-    decision_summary = (
-        f"Based on the overall credit assessment, the facility is recommended for {decision}."
-    )
+    decision_summary = f"Based on the overall credit assessment, the facility is recommended for {decision}."
 
     if decision == "APPROVE":
         recommendation = "The facility is recommended for APPROVAL without conditions."
     elif decision == "APPROVE WITH CONDITIONS":
-        recommendation = (
-            "The facility is recommended for APPROVAL subject to:
-"
-            "• Verification of financial and operating records
-"
-            "• Ongoing monitoring of repayment performance
-"
-            "• Proper perfection of collateral documentation"
-        )
+        recommendation = """The facility is recommended for APPROVAL subject to:
+• Verification of financial and operating records
+• Ongoing monitoring of repayment performance
+• Proper perfection of collateral documentation"""
     else:
-        recommendation = (
-            "The facility is recommended for REJECTION due to weak credit fundamentals "
-            "and an unfavorable risk-return profile."
-        )
+        recommendation = "The facility is recommended for REJECTION due to weak credit fundamentals and an unfavorable risk-return profile."
 
     return {
         "borrower_summary": borrower_summary,
@@ -363,14 +251,12 @@ def generate_bank_grade_memo(record):
         "ai_recommendation": recommendation
     }
 
-
 def build_consistent_manager_memo(record, metrics):
     risk_grade = str(metrics.get("risk_grade") or "C").strip().upper()
     risk_level = "Low Risk" if risk_grade == "A" else "Moderate Risk" if risk_grade == "B" else "High Risk"
     credit_score = int(metrics.get("credit_score") or record.get("credit_score") or record.get("score") or 0)
     dscr = float(metrics.get("dscr") or record.get("dscr") or 0)
     decision = str(metrics.get("decision") or record.get("decision") or "REJECT").strip()
-
     fallback = generate_bank_grade_memo(record)
     return {
         "borrower_summary": safe_text(record.get("borrower_summary"), fallback["borrower_summary"]),
@@ -382,12 +268,8 @@ def build_consistent_manager_memo(record, metrics):
         "ai_recommendation": safe_text(record.get("ai_recommendation"), f"Facility recommendation: {decision}."),
     }
 
-
-saved_strengths = clean_list(app.get("ai_strengths"))
-saved_risks = clean_list(app.get("ai_risk_flags"))
 metrics = get_canonical_metrics(app)
 memo = build_consistent_manager_memo(app, metrics)
-
 history = app.get("approval_history") or []
 existing_manager_notes = str(app.get("manager_notes") or "")
 existing_decision_note = ""
@@ -470,31 +352,34 @@ if not is_pending_manager_action:
     st.info("This application has already been reviewed at manager stage. Saved data is shown for reference.")
 
 act1, act2, act3 = st.columns(3)
+common_payload = {
+    "manager_notes": manager_notes,
+    "score": metrics.get("credit_score", app.get("score")),
+    "credit_score": metrics.get("credit_score", app.get("credit_score")),
+    "risk_grade": metrics.get("risk_grade", app.get("risk_grade")),
+    "dscr": metrics.get("dscr", app.get("dscr")),
+    "borrower_summary": memo["borrower_summary"],
+    "facility_request": memo["facility_request"],
+    "risk_assessment": memo["risk_assessment"],
+    "decision_summary": memo["decision_summary"],
+    "ai_strengths": memo["ai_strengths"],
+    "ai_risk_flags": memo["ai_risk_flags"],
+    "ai_recommendation": memo["ai_recommendation"],
+    "loan_amount": revised_loan_amount,
+    "tenor": int(revised_tenor),
+    "recommended_amount": revised_loan_amount,
+    "recommended_tenor": int(revised_tenor),
+}
 
 with act1:
     if st.button("Approve", disabled=not is_pending_manager_action, key=f"approve_manager_{app['id']}"):
         updated_history = app.get("approval_history") or []
         updated_history.append(build_actor_entry(profile, user, role, "APPROVED", decision_note))
         payload = {
+            **common_payload,
             "workflow_status": "MANAGER_APPROVED",
             "approval_history": updated_history,
-            "manager_notes": manager_notes,
-            "score": metrics.get("credit_score", app.get("score")),
-            "credit_score": metrics.get("credit_score", app.get("credit_score")),
-            "risk_grade": metrics.get("risk_grade", app.get("risk_grade")),
-            "dscr": metrics.get("dscr", app.get("dscr")),
             "decision": metrics.get("decision", app.get("decision")),
-            "borrower_summary": memo["borrower_summary"],
-            "facility_request": memo["facility_request"],
-            "risk_assessment": memo["risk_assessment"],
-            "decision_summary": memo["decision_summary"],
-            "ai_strengths": memo["ai_strengths"],
-            "ai_risk_flags": memo["ai_risk_flags"],
-            "ai_recommendation": memo["ai_recommendation"],
-            "loan_amount": revised_loan_amount,
-            "tenor": int(revised_tenor),
-            "recommended_amount": revised_loan_amount,
-            "recommended_tenor": int(revised_tenor),
         }
         supabase.table("loan_applications").update(payload).eq("id", app["id"]).execute()
         send_next_stage_notification(institution, "manager", {**app, **payload}, display_name)
@@ -507,25 +392,10 @@ with act2:
         updated_history = app.get("approval_history") or []
         updated_history.append(build_actor_entry(profile, user, role, "REJECTED", decision_note))
         payload = {
+            **common_payload,
             "workflow_status": "MANAGER_REJECTED",
             "approval_history": updated_history,
-            "manager_notes": manager_notes,
-            "score": metrics.get("credit_score", app.get("score")),
-            "credit_score": metrics.get("credit_score", app.get("credit_score")),
-            "risk_grade": metrics.get("risk_grade", app.get("risk_grade")),
-            "dscr": metrics.get("dscr", app.get("dscr")),
-            "decision": metrics.get("decision", app.get("decision")),
-            "borrower_summary": memo["borrower_summary"],
-            "facility_request": memo["facility_request"],
-            "risk_assessment": memo["risk_assessment"],
-            "decision_summary": memo["decision_summary"],
-            "ai_strengths": memo["ai_strengths"],
-            "ai_risk_flags": memo["ai_risk_flags"],
-            "ai_recommendation": memo["ai_recommendation"],
-            "loan_amount": revised_loan_amount,
-            "tenor": int(revised_tenor),
-            "recommended_amount": revised_loan_amount,
-            "recommended_tenor": int(revised_tenor),
+            "decision": "REJECTED",
         }
         supabase.table("loan_applications").update(payload).eq("id", app["id"]).execute()
         send_initiator_outcome({**app, **payload}, "Rejected by Manager")
@@ -538,25 +408,12 @@ with act3:
         updated_history = app.get("approval_history") or []
         updated_history.append(build_actor_entry(profile, user, role, "POSTPONED", decision_note))
         payload = {
+            **common_payload,
             "workflow_status": "MANAGER_POSTPONED",
             "approval_history": updated_history,
-            "manager_notes": manager_notes,
-            "score": metrics.get("credit_score", app.get("score")),
-            "credit_score": metrics.get("credit_score", app.get("credit_score")),
-            "risk_grade": metrics.get("risk_grade", app.get("risk_grade")),
-            "dscr": metrics.get("dscr", app.get("dscr")),
             "decision": "POSTPONED",
-            "borrower_summary": memo["borrower_summary"],
-            "facility_request": memo["facility_request"],
-            "risk_assessment": memo["risk_assessment"],
             "decision_summary": "Decision postponed pending additional review / documentation.",
-            "ai_strengths": memo["ai_strengths"],
-            "ai_risk_flags": memo["ai_risk_flags"],
             "ai_recommendation": "Postpone pending additional review / documentation.",
-            "loan_amount": revised_loan_amount,
-            "tenor": int(revised_tenor),
-            "recommended_amount": revised_loan_amount,
-            "recommended_tenor": int(revised_tenor),
         }
         supabase.table("loan_applications").update(payload).eq("id", app["id"]).execute()
         send_initiator_outcome({**app, **payload}, "Postponed by Manager")
